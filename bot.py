@@ -6270,26 +6270,28 @@ def create_roulette_menu_keyboard(user_id, bet_amount):
     return InlineKeyboardMarkup(keyboard)
 
 def create_roulette_number_selection_keyboard(user_id, selected_numbers):
-    """Create keyboard for number selection (0-36)"""
+    """Create keyboard for number selection (0-36) with 3 numbers per row"""
     keyboard = [
+        # Row 1: Start button
         [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_numbers_{user_id}")]
     ]
     
-    # Add number 0 separately
+    # Row 2: Number 0 alone
     emoji_0 = get_roulette_number_emoji(0)
     selected_0 = "✅ " if 0 in selected_numbers else ""
     keyboard.append([InlineKeyboardButton(f"{selected_0}{emoji_0} 0", callback_data=f"roul_num_0_{user_id}")])
     
-    # Add numbers 1-36 in rows of 6
-    for row_start in range(1, 37, 6):
+    # Rows 3-14: Numbers 1-36 in rows of 3 (12 rows total)
+    for row_start in range(1, 37, 3):
         row = []
-        for num in range(row_start, min(row_start + 6, 37)):
+        for num in range(row_start, min(row_start + 3, 37)):
             emoji = get_roulette_number_emoji(num)
             selected = "✅ " if num in selected_numbers else ""
-            row.append(InlineKeyboardButton(f"{selected}{emoji} {num}", callback_data=f"roul_num_{num}_{user_id}"))
+            # Add spacing for better visibility
+            row.append(InlineKeyboardButton(f"{selected}{emoji}  {num}  ", callback_data=f"roul_num_{num}_{user_id}"))
         keyboard.append(row)
     
-    # Add back button
+    # Last row: Back button
     keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"roul_back_{user_id}")])
     
     return InlineKeyboardMarkup(keyboard)
@@ -9592,7 +9594,15 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     # NEW: Enhanced user-specific security check
-    if len(parts) >= 4 and parts[3].isdigit():
+    # Format: mines_pick_{game_id}_{tile}_{user_id} or mines_cashout_{game_id}_{user_id} or mines_random_{game_id}_{user_id}
+    if len(parts) >= 5 and parts[4].isdigit():
+        # For pick action: parts = ['mines', 'pick', game_id, tile, user_id]
+        button_user_id = int(parts[4])
+        if user.id != button_user_id:
+            await query.answer("This is not your game!", show_alert=True)
+            return
+    elif len(parts) >= 4 and parts[3].isdigit() and action in ['cashout', 'random']:
+        # For cashout/random: parts = ['mines', 'cashout'/'random', game_id, user_id]
         button_user_id = int(parts[3])
         if user.id != button_user_id:
             await query.answer("This is not your game!", show_alert=True)
