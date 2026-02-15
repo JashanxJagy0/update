@@ -2632,24 +2632,24 @@ def build_deposit_menu():
     
     keyboard_rows = [
         [
-            InlineKeyboardButton("🔷 Ethereum", callback_data="deposit_ETH"),
-            InlineKeyboardButton("🟡 BNB Chain", callback_data="deposit_BNB")
+            apply_button_style(InlineKeyboardButton("🔷 Ethereum", callback_data="deposit_ETH"), 'primary'),  # BLUE
+            apply_button_style(InlineKeyboardButton("🟡 BNB Chain", callback_data="deposit_BNB"), 'primary')  # BLUE
         ],
         [
-            InlineKeyboardButton("🔵 Base", callback_data="deposit_BASE"),
+            apply_button_style(InlineKeyboardButton("🔵 Base", callback_data="deposit_BASE"), 'primary'),  # BLUE
         ]
     ]
     
     # Add TRON if available
     if TRON_AVAILABLE:
         chains_text.append("• 🔴 <b>TRON (TRX)</b> - TRX, USDT")
-        keyboard_rows[-1].append(InlineKeyboardButton("🔴 TRON", callback_data="deposit_TRON"))
+        keyboard_rows[-1].append(apply_button_style(InlineKeyboardButton("🔴 TRON", callback_data="deposit_TRON"), 'primary'))  # BLUE
     
     # Add Solana if available
     row_3 = []
     if SOLANA_AVAILABLE:
         chains_text.append("• 🟣 <b>Solana (SOL)</b> - SOL, USDT, USDC")
-        row_3.append(InlineKeyboardButton("🟣 Solana", callback_data="deposit_SOLANA"))
+        row_3.append(apply_button_style(InlineKeyboardButton("🟣 Solana", callback_data="deposit_SOLANA"), 'primary'))  # BLUE
     
     # TON deposit removed as per requirements
     # if TON_AVAILABLE:
@@ -2659,10 +2659,10 @@ def build_deposit_menu():
     if row_3:
         keyboard_rows.append(row_3)
     
-    # Add bottom row
+    # Add bottom row - History BLUE, Back RED
     keyboard_rows.append([
-        InlineKeyboardButton("📊 Deposit History", callback_data="deposit_history"),
-        InlineKeyboardButton("🔙 Back", callback_data="back_to_main")
+        apply_button_style(InlineKeyboardButton("📊 Deposit History", callback_data="deposit_history"), 'primary'),  # BLUE
+        apply_button_style(InlineKeyboardButton("🔙 Back", callback_data="back_to_main"), 'danger')  # RED
     ])
     
     text = (
@@ -2684,7 +2684,7 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     text, keyboard_rows = build_deposit_menu()
-    sent_message = await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard_rows), parse_mode=ParseMode.HTML)
+    sent_message = await update.message.reply_text(text, reply_markup=create_styled_keyboard(keyboard_rows), parse_mode=ParseMode.HTML)
     # Set menu owner after sending
     set_menu_owner(sent_message, user_id)
 
@@ -2891,7 +2891,7 @@ async def back_to_deposit_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     text, keyboard = build_deposit_menu()
     
     # Use safe_edit_message to handle the transition from Photo -> Text
-    await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+    await safe_edit_message(query, text, reply_markup=create_styled_keyboard(keyboard), parse_mode=ParseMode.HTML)
 
 
 # ===== BACKGROUND TASKS =====
@@ -4610,7 +4610,7 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         
         text, keyboard = build_deposit_menu()
-        await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        await safe_edit_message(query, text, reply_markup=create_styled_keyboard(keyboard), parse_mode=ParseMode.HTML)
         return
 
     elif data == "main_withdraw":
@@ -4927,10 +4927,10 @@ async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_lang = get_user_lang(user.id) if user else DEFAULT_LANG
     
     keyboard = [
-        [InlineKeyboardButton("🔥 House Games", callback_data="games_category_house")],
-        [InlineKeyboardButton("🎲 Emoji Games", callback_data="games_category_emoji")],
-        [InlineKeyboardButton("⚡ Official Group", url="https://t.me/playcsino")],
-        [InlineKeyboardButton(get_text("back", user_lang), callback_data="back_to_main")]
+        [apply_button_style(InlineKeyboardButton("🔥 House Games", callback_data="games_category_house"), 'primary')],  # BLUE
+        [apply_button_style(InlineKeyboardButton("🎲 Emoji Games", callback_data="games_category_emoji"), 'success')],  # GREEN
+        [InlineKeyboardButton("⚡ Official Group", url="https://t.me/playcsino").to_dict()],
+        [apply_button_style(InlineKeyboardButton(get_text("back", user_lang), callback_data="back_to_main"), 'danger')]  # RED
     ]
     text = get_text("games_menu", user_lang)
 
@@ -4939,7 +4939,7 @@ async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.callback_query,
             text,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=create_styled_keyboard(keyboard)
         )
         # Set menu owner after editing
         if user:
@@ -4948,7 +4948,7 @@ async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_message = await update.message.reply_text(
             text,
             parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=create_styled_keyboard(keyboard)
         )
         # Set menu owner after sending
         if user:
@@ -4982,43 +4982,43 @@ async def games_category_callback(update: Update, context: ContextTypes.DEFAULT_
     if category == "house":
         text = "🏠 <b>House Games</b>\n\nChoose a game to see how to play:"
         keyboard = [
-            [InlineKeyboardButton("🃏 Blackjack", callback_data="game_blackjack"),
-             InlineKeyboardButton("🎲 Dice Roll", callback_data="game_dice_roll")],
-            [InlineKeyboardButton("🔮 Predict", callback_data="game_predict"),
-             InlineKeyboardButton("🎯 Roulette", callback_data="game_roulette")],
-            [InlineKeyboardButton("🎰 Slots", callback_data="game_slots"),
-             InlineKeyboardButton("🏗️ Tower", callback_data="game_tower_start")],
-            [InlineKeyboardButton("💣 Mines", callback_data="game_mines_start"),
-             InlineKeyboardButton("🎯 Keno", callback_data="game_keno")],
-            [InlineKeyboardButton("🪙 Coin Flip", callback_data="game_coin_flip"),
-             InlineKeyboardButton("🎴 High-Low", callback_data="game_highlow")],
-            [InlineKeyboardButton("🔙 Back to Categories", callback_data="main_games")]
+            [apply_button_style(InlineKeyboardButton("🃏 Blackjack", callback_data="game_blackjack"), 'success'),  # GREEN
+             apply_button_style(InlineKeyboardButton("🎲 Dice Roll", callback_data="game_dice_roll"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🔮 Predict", callback_data="game_predict"), 'success'),  # GREEN
+             apply_button_style(InlineKeyboardButton("🎯 Roulette", callback_data="game_roulette"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🎰 Slots", callback_data="game_slots"), 'success'),  # GREEN
+             apply_button_style(InlineKeyboardButton("🏗️ Tower", callback_data="game_tower_start"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("💣 Mines", callback_data="game_mines_start"), 'success'),  # GREEN
+             apply_button_style(InlineKeyboardButton("🎯 Keno", callback_data="game_keno"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🪙 Coin Flip", callback_data="game_coin_flip"), 'success'),  # GREEN
+             apply_button_style(InlineKeyboardButton("🎴 High-Low", callback_data="game_highlow"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🔙 Back to Categories", callback_data="main_games"), 'danger')]  # RED
         ]
     elif category == "emoji":
         text = "😀 <b>Emoji Games</b>\n\nChoose a category:"
         keyboard = [
-            [InlineKeyboardButton("🎮 Regular Games", callback_data="games_emoji_regular")],
-            [InlineKeyboardButton("🎯 Single Emoji Games", callback_data="games_emoji_single")],
-            [InlineKeyboardButton("🔙 Back to Categories", callback_data="main_games")]
+            [apply_button_style(InlineKeyboardButton("🎮 Regular Games", callback_data="games_emoji_regular"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("🎯 Single Emoji Games", callback_data="games_emoji_single"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🔙 Back to Categories", callback_data="main_games"), 'danger')]  # RED
         ]
     elif category == "emoji-regular":
         text = "🎮 <b>Regular Emoji Games</b>\n\nChoose a game to see how to play:"
         keyboard = [
-            [InlineKeyboardButton("🎲 Dice", callback_data="game_dice_bot")],
-            [InlineKeyboardButton("🎯 Darts", callback_data="game_darts")],
-            [InlineKeyboardButton("⚽ Football", callback_data="game_football")],
-            [InlineKeyboardButton("🎳 Bowling", callback_data="game_bowling")],
-            [InlineKeyboardButton("🔙 Back to Emoji Games", callback_data="games_category_emoji")]
+            [apply_button_style(InlineKeyboardButton("🎲 Dice", callback_data="game_dice_bot"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🎯 Darts", callback_data="game_darts"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("⚽ Football", callback_data="game_football"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🎳 Bowling", callback_data="game_bowling"), 'success')],  # GREEN
+            [apply_button_style(InlineKeyboardButton("🔙 Back to Emoji Games", callback_data="games_category_emoji"), 'danger')]  # RED
         ]
     elif category == "emoji-single":
         text = "🎯 <b>Single Emoji Games</b>\n\nQuick games with instant results!\n\nHow to play: Choose a game, set your bet, and watch the emoji!"
         keyboard = [
-            [InlineKeyboardButton("🎯 Darts (1.15x)", callback_data="game_single_darts")],
-            [InlineKeyboardButton("⚽ Soccer (1.53x)", callback_data="game_single_soccer")],
-            [InlineKeyboardButton("🏀 Basket (2.25x)", callback_data="game_single_basket")],
-            [InlineKeyboardButton("🎳 Bowling (5.00x)", callback_data="game_single_bowling")],
-            [InlineKeyboardButton("🎰 Slot (14.5x)", callback_data="game_single_slot")],
-            [InlineKeyboardButton("🔙 Back to Emoji Games", callback_data="games_category_emoji")]
+            [apply_button_style(InlineKeyboardButton("🎯 Darts (1.15x)", callback_data="game_single_darts"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("⚽ Soccer (1.53x)", callback_data="game_single_soccer"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("🏀 Basket (2.25x)", callback_data="game_single_basket"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("🎳 Bowling (5.00x)", callback_data="game_single_bowling"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("🎰 Slot (14.5x)", callback_data="game_single_slot"), 'primary')],  # BLUE
+            [apply_button_style(InlineKeyboardButton("🔙 Back to Emoji Games", callback_data="games_category_emoji"), 'danger')]  # RED
         ]
     else:
         return
@@ -5027,7 +5027,7 @@ async def games_category_callback(update: Update, context: ContextTypes.DEFAULT_
         query,
         text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=create_styled_keyboard(keyboard)
     )
 
 # --- GAME INFO CALLBACKS ---
@@ -6574,13 +6574,13 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Get stored bet amount
     bet_amount = context.user_data.get('roulette_bet_amount')
     if not bet_amount:
-        await query.edit_message_text("Session expired. Please start a new game with /roul amount")
+        await safe_edit_message(query, "Session expired. Please start a new game with /roul amount")
         return
     
     # Cancel bet
     if action == "cancel":
         context.user_data.clear()
-        await query.edit_message_text("🎯 Roulette game cancelled.")
+        await safe_edit_message(query, "🎯 Roulette game cancelled.")
         return
     
     # Back to main menu from number selection
@@ -6591,7 +6591,8 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n\n"
             f"Select your bet or choose numbers:"
         )
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             menu_text,
             parse_mode=ParseMode.HTML,
             reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
@@ -6626,7 +6627,8 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Multiplier: <b>{multiplier}x</b>\n\n"
             f"Select up to 6 numbers (tap to toggle):"
         )
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             menu_text,
             parse_mode=ParseMode.HTML,
             reply_markup=create_roulette_number_selection_keyboard(user.id, selected_numbers)
@@ -6643,7 +6645,8 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Multiplier: <b>36x</b>\n\n"
             f"Select up to 6 numbers (tap to toggle):"
         )
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             menu_text,
             parse_mode=ParseMode.HTML,
             reply_markup=create_roulette_number_selection_keyboard(user.id, [])
@@ -6703,7 +6706,8 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🎲 Selected: <b>{choice.upper()}</b>\n\n"
                 f"Tap <b>Start</b> to play or select a different option:"
             )
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 menu_text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
@@ -6717,7 +6721,7 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check balance
     if user_wallets.get(user.id, 0.0) < bet_amount:
-        await query.edit_message_text("❌ Insufficient balance.")
+        await safe_edit_message(query, "❌ Insufficient balance.")
         context.user_data.clear()
         return
     
@@ -6785,10 +6789,19 @@ async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     store_provably_fair_record(game_id, "roulette", seeds["server_seed"], seeds["client_seed"], seeds["nonce"], 
                                result_data=f"Winning number: {winning_number}, Choice: {choice}")
     
-    # Add provably fair button
-    keyboard = [[await create_provably_fair_button(game_id, context)]]
+    # Add provably fair button with green style
+    pf_button = await create_provably_fair_button(game_id, context)
+    # Try to apply style to URL button (may not work, but worth trying)
+    try:
+        pf_button_dict = pf_button.to_dict()
+        pf_button_dict['style'] = 'success'  # GREEN
+        keyboard = [[pf_button_dict]]
+    except:
+        # If styling URL buttons doesn't work, use normal button
+        keyboard = [[pf_button]]
     
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         f"🎯 <b>Roulette Result</b> (ID: <code>{game_id}</code>)\n\n"
         f"🎰 Winning Number: <b>{winning_number}</b> {color}\n"
         f"🎲 Your Choice: {choice_display}\n"
@@ -13948,34 +13961,34 @@ async def more_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page=0):
     
     # All items that were previously in the main menu (except Deposit, Withdraw, Games, Settings, Admin)
     all_items = [
-        ("🛡️ Escrow", "main_escrow"),
-        ("💼 Wallet", "main_wallet"),
-        ("📈 Leaderboard", "main_leaderboard"),
-        ("🤝 Referral", "main_referral"),
-        ("🦄 Level", "main_level"),
-        ("🤖 AI Assistant", "main_ai"),
-        ("🏆 Achievements", "main_achievements"),
-        ("🆘 Support", "main_support"),
-        ("❓ Help", "main_help"),
-        ("ℹ️ Info & Rules", "main_info"),
-        ("🎟️ Claim Gift Code", "main_claim_gift"),
-        ("📊 Stats", "main_stats"),
-        ("💱 Currency", "settings_currency"),
+        ("🛡️ Escrow", "main_escrow", 'primary'),  # BLUE
+        ("💼 Wallet", "main_wallet", 'primary'),  # BLUE
+        ("📈 Leaderboard", "main_leaderboard", 'primary'),  # BLUE
+        ("🤝 Referral", "main_referral", 'primary'),  # BLUE
+        ("🦄 Level", "main_level", 'primary'),  # BLUE
+        ("🤖 AI Assistant", "main_ai", 'primary'),  # BLUE
+        ("🏆 Achievements", "main_achievements", 'primary'),  # BLUE
+        ("🆘 Support", "main_support", 'primary'),  # BLUE
+        ("❓ Help", "main_help", 'primary'),  # BLUE
+        ("ℹ️ Info & Rules", "main_info", 'primary'),  # BLUE
+        ("🎟️ Claim Gift Code", "main_claim_gift", 'primary'),  # BLUE
+        ("📊 Stats", "main_stats", 'primary'),  # BLUE
+        ("💱 Currency", "settings_currency", 'primary'),  # BLUE
     ]
     
     keyboard = []
-    # Add all items (2 per row)
+    # Add all items (2 per row) with colors
     for i in range(0, len(all_items), 2):
-        row = [InlineKeyboardButton(all_items[i][0], callback_data=all_items[i][1])]
+        row = [apply_button_style(InlineKeyboardButton(all_items[i][0], callback_data=all_items[i][1]), all_items[i][2])]
         if i + 1 < len(all_items):
-            row.append(InlineKeyboardButton(all_items[i + 1][0], callback_data=all_items[i + 1][1]))
+            row.append(apply_button_style(InlineKeyboardButton(all_items[i + 1][0], callback_data=all_items[i + 1][1]), all_items[i + 1][2]))
         keyboard.append(row)
     
-    # Add Terms of Service button
-    keyboard.append([InlineKeyboardButton("📜 Terms of Service", url="https://telegra.ph/Casino-Terms-of-Service-11-17")])
+    # Add Terms of Service button (no color for URL buttons)
+    keyboard.append([InlineKeyboardButton("📜 Terms of Service", url="https://telegra.ph/Casino-Terms-of-Service-11-17").to_dict()])
     
-    # Back button
-    keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main")])
+    # Back button - RED
+    keyboard.append([apply_button_style(InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_main"), 'danger')])
     
     text = f"➕ <b>More Options</b>\n\nSelect an option:"
     
@@ -13983,7 +13996,7 @@ async def more_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page=0):
         query,
         text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=create_styled_keyboard(keyboard)
     )
 
 ## NEW FEATURE - Settings and Recovery System ##
