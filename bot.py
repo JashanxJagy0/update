@@ -2965,7 +2965,8 @@ async def safe_edit_message(query, text, reply_markup=None, parse_mode=None, dis
  SETTINGS_RECOVERY_PIN, RECOVER_ASK_TOKEN, RECOVER_ASK_PIN,
  ADMIN_GIFT_CODE_AMOUNT, ADMIN_GIFT_CODE_CLAIMS, ADMIN_GIFT_CODE_WAGER, SETTINGS_WITHDRAWAL_ADDRESS, SETTINGS_WITHDRAWAL_ADDRESS_CHANGE,
  WITHDRAWAL_AMOUNT, WITHDRAWAL_APPROVAL_TXID, TOWER_BET_AMOUNT, PF_CHANGE_CLIENT_SEED_INPUT,
- PF_VERIFY_INPUT_SERVER_SEED, PF_VERIFY_INPUT_CLIENT_SEED, PF_VERIFY_INPUT_NONCE, PF_VERIFY_INPUT_PARAM) = range(30)
+ PF_VERIFY_INPUT_SERVER_SEED, PF_VERIFY_INPUT_CLIENT_SEED, PF_VERIFY_INPUT_NONCE, PF_VERIFY_INPUT_PARAM,
+ ROULETTE_BET_AMOUNT) = range(31)
 
 # --- GAME MULTIPLIERS AND CONFIGS ---
 
@@ -6088,6 +6089,64 @@ async def highlow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # 3. ROULETTE GAME
+# NEW: Roulette helper functions for interactive menu system
+
+# Roulette number to color mapping
+ROULETTE_RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
+ROULETTE_BLACK_NUMBERS = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
+
+def get_roulette_number_emoji(number):
+    """Get colored emoji for roulette number"""
+    if number == 0:
+        return "🟢"
+    elif number in ROULETTE_RED_NUMBERS:
+        return "🔴"
+    else:
+        return "⚫"
+
+def create_roulette_menu_keyboard(user_id, bet_amount):
+    """Create the main roulette menu with betting options"""
+    keyboard = [
+        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_{user_id}")],
+        [InlineKeyboardButton("🎯 Bet on Number", callback_data=f"roul_bet_number_{user_id}")],
+        [InlineKeyboardButton("1-12", callback_data=f"roul_1-12_{user_id}"),
+         InlineKeyboardButton("13-24", callback_data=f"roul_13-24_{user_id}"),
+         InlineKeyboardButton("25-36", callback_data=f"roul_25-36_{user_id}")],
+        [InlineKeyboardButton("1-18", callback_data=f"roul_1-18_{user_id}"),
+         InlineKeyboardButton("19-36", callback_data=f"roul_19-36_{user_id}")],
+        [InlineKeyboardButton("Even", callback_data=f"roul_even_{user_id}"),
+         InlineKeyboardButton("Odd", callback_data=f"roul_odd_{user_id}")],
+        [InlineKeyboardButton("🔴 Red", callback_data=f"roul_red_{user_id}"),
+         InlineKeyboardButton("⚫ Black", callback_data=f"roul_black_{user_id}")],
+        [InlineKeyboardButton("❌ Cancel Bet", callback_data=f"roul_cancel_{user_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def create_roulette_number_selection_keyboard(user_id, selected_numbers):
+    """Create keyboard for number selection (0-36)"""
+    keyboard = [
+        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_numbers_{user_id}")]
+    ]
+    
+    # Add number 0 separately
+    emoji_0 = get_roulette_number_emoji(0)
+    selected_0 = "✅ " if 0 in selected_numbers else ""
+    keyboard.append([InlineKeyboardButton(f"{selected_0}{emoji_0} 0", callback_data=f"roul_num_0_{user_id}")])
+    
+    # Add numbers 1-36 in rows of 6
+    for row_start in range(1, 37, 6):
+        row = []
+        for num in range(row_start, min(row_start + 6, 37)):
+            emoji = get_roulette_number_emoji(num)
+            selected = "✅ " if num in selected_numbers else ""
+            row.append(InlineKeyboardButton(f"{selected}{emoji} {num}", callback_data=f"roul_num_{num}_{user_id}"))
+        keyboard.append(row)
+    
+    # Add back button
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"roul_back_{user_id}")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
 @check_banned
 @check_maintenance
 async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6096,10 +6155,61 @@ async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = message_text.replace('/roulette', '').replace('/roul', '').strip().split()
     await ensure_user_in_wallets(user.id, user.username, context=context)
 
+    # NEW: Support for /roul amount (interactive menu)
+    if len(args) == 1:
+        try:
+            bet_amount_str = args[0].lower()
+            if bet_amount_str == 'all':
+                bet_amount = user_wallets.get(user.id, 0.0)
+            else:
+                bet_amount = float(bet_amount_str)
+        except ValueError:
+            await update.message.reply_text("Invalid amount.")
+            return
+        
+        # Check bet limits
+        if not await check_bet_limits(update, bet_amount, 'roulette'):
+            return
+        
+        # Check balance
+        if user_wallets.get(user.id, 0.0) < bet_amount:
+            await send_insufficient_balance_message(update)
+            return
+        
+        # Store bet amount and show interactive menu
+        context.user_data['roulette_bet_amount'] = bet_amount
+        context.user_data['roulette_selected_numbers'] = []
+        context.user_data['roulette_selection'] = None
+        
+        menu_text = (
+            f"🎯 <b>Roulette Game</b>\n\n"
+            f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n\n"
+            f"Select your bet or choose numbers:"
+        )
+        
+        sent_message = await update.message.reply_text(
+            menu_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
+        )
+        set_menu_owner(sent_message, user.id)
+        return
+    
+    # OLD: Support for /roul amount choice (classic mode)
     if len(args) != 2:
         await update.message.reply_text(
-            "Usage: /roul amount choice\n\nExamples:\n"
-            "• /roul 1 5\n• /roul all red\n• /roul 1 even\n• /roul 1 low\n• /roul 1 high\n• /roul 1 column1"
+            "Usage:\n"
+            "• <b>Interactive Menu:</b> /roul amount\n"
+            "• <b>Quick Bet:</b> /roul amount choice\n\n"
+            "Examples:\n"
+            "• /roul 10 (opens menu)\n"
+            "• /roul 1 5 (quick bet on number 5)\n"
+            "• /roul all red (quick bet on red)\n"
+            "• /roul 1 even (quick bet on even)\n"
+            "• /roul 1 low (quick bet 1-18)\n"
+            "• /roul 1 high (quick bet 19-36)\n"
+            "• /roul 1 column1 (quick bet on column 1)",
+            parse_mode=ParseMode.HTML
         )
         return
 
@@ -6193,6 +6303,258 @@ async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+# NEW: Roulette callback handler for interactive menu
+@check_banned
+@check_maintenance
+async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle roulette interactive menu callbacks"""
+    query = update.callback_query
+    user = query.from_user
+    
+    if not query.data.startswith("roul_"):
+        return
+    
+    # Parse callback data
+    parts = query.data.split("_")
+    action = parts[1]
+    user_id_from_button = int(parts[-1]) if parts[-1].isdigit() else None
+    
+    # User-specific button check
+    if user_id_from_button and user.id != user_id_from_button:
+        await query.answer("This menu is not for you!", show_alert=True)
+        return
+    
+    await query.answer()
+    
+    # Get stored bet amount
+    bet_amount = context.user_data.get('roulette_bet_amount')
+    if not bet_amount:
+        await query.edit_message_text("Session expired. Please start a new game with /roul amount")
+        return
+    
+    # Cancel bet
+    if action == "cancel":
+        context.user_data.clear()
+        await query.edit_message_text("🎯 Roulette game cancelled.")
+        return
+    
+    # Back to main menu from number selection
+    if action == "back":
+        context.user_data['roulette_selected_numbers'] = []
+        menu_text = (
+            f"🎯 <b>Roulette Game</b>\n\n"
+            f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n\n"
+            f"Select your bet or choose numbers:"
+        )
+        await query.edit_message_text(
+            menu_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
+        )
+        return
+    
+    # Number selection mode
+    if action == "num":
+        selected_numbers = context.user_data.get('roulette_selected_numbers', [])
+        number = int(parts[2])
+        
+        if number in selected_numbers:
+            # Deselect
+            selected_numbers.remove(number)
+        else:
+            # Select (max 6)
+            if len(selected_numbers) >= 6:
+                await query.answer("Maximum 6 numbers allowed!", show_alert=True)
+                return
+            selected_numbers.append(number)
+        
+        context.user_data['roulette_selected_numbers'] = selected_numbers
+        
+        # Update keyboard
+        multiplier_map = {1: 36, 2: 18, 3: 12, 4: 9, 5: 7, 6: 6}
+        multiplier = multiplier_map.get(len(selected_numbers), 1)
+        
+        menu_text = (
+            f"🎯 <b>Roulette - Number Selection</b>\n\n"
+            f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n"
+            f"🎲 Selected: <b>{len(selected_numbers)}/6 numbers</b>\n"
+            f"📊 Multiplier: <b>{multiplier}x</b>\n\n"
+            f"Select up to 6 numbers (tap to toggle):"
+        )
+        await query.edit_message_text(
+            menu_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=create_roulette_number_selection_keyboard(user.id, selected_numbers)
+        )
+        return
+    
+    # Bet on number - show number selection
+    if action == "bet" and len(parts) >= 3 and parts[2] == "number":
+        context.user_data['roulette_selected_numbers'] = []
+        menu_text = (
+            f"🎯 <b>Roulette - Number Selection</b>\n\n"
+            f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n"
+            f"🎲 Selected: <b>0/6 numbers</b>\n"
+            f"📊 Multiplier: <b>36x</b>\n\n"
+            f"Select up to 6 numbers (tap to toggle):"
+        )
+        await query.edit_message_text(
+            menu_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=create_roulette_number_selection_keyboard(user.id, [])
+        )
+        return
+    
+    # Start with number selection
+    if action == "start" and len(parts) >= 3 and parts[2] == "numbers":
+        selected_numbers = context.user_data.get('roulette_selected_numbers', [])
+        if not selected_numbers:
+            await query.answer("Please select at least one number!", show_alert=True)
+            return
+        
+        # Play with selected numbers
+        choice = "numbers"
+        choice_numbers = selected_numbers
+    # Start with single option selection
+    elif action == "start":
+        selection = context.user_data.get('roulette_selection')
+        if not selection:
+            await query.answer("Please select a bet option first!", show_alert=True)
+            return
+        choice = selection
+        choice_numbers = None
+    # Selection from menu
+    else:
+        # Map action to choice
+        choice_map = {
+            "1-12": "column1", "13-24": "column2", "25-36": "column3",
+            "1-18": "low", "19-36": "high",
+            "even": "even", "odd": "odd",
+            "red": "red", "black": "black"
+        }
+        
+        # Store selection
+        if action in choice_map or action in ["1-12", "13-24", "25-36", "1-18", "19-36"]:
+            # Map the selection
+            if action == "1-12":
+                choice = "column1"
+            elif action == "13-24":
+                choice = "column2"
+            elif action == "25-36":
+                choice = "column3"
+            elif action == "1-18":
+                choice = "low"
+            elif action == "19-36":
+                choice = "high"
+            else:
+                choice = action
+            
+            context.user_data['roulette_selection'] = choice
+            
+            # Update menu to show selection
+            menu_text = (
+                f"🎯 <b>Roulette Game</b>\n\n"
+                f"💰 Bet Amount: <b>${bet_amount:.2f}</b>\n"
+                f"🎲 Selected: <b>{choice.upper()}</b>\n\n"
+                f"Tap <b>Start</b> to play or select a different option:"
+            )
+            await query.edit_message_text(
+                menu_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
+            )
+            return
+        else:
+            return
+    
+    # Execute the game
+    await ensure_user_in_wallets(user.id, user.username, context=context)
+    
+    # Check balance
+    if user_wallets.get(user.id, 0.0) < bet_amount:
+        await query.edit_message_text("❌ Insufficient balance.")
+        context.user_data.clear()
+        return
+    
+    # Deduct bet
+    user_wallets[user.id] -= bet_amount
+    save_user_data(user.id)
+    
+    # Generate result
+    seeds = get_user_seeds(user.id)
+    winning_number = get_provably_fair_result(seeds["server_seed"], seeds["client_seed"], seeds["nonce"], 37)
+    game_id = generate_unique_id("RL")
+    
+    # Determine win/loss
+    win = False
+    multiplier = 0
+    
+    if choice == "numbers":
+        # Multiple number bet
+        multiplier_map = {1: 36, 2: 18, 3: 12, 4: 9, 5: 7, 6: 6}
+        multiplier = multiplier_map.get(len(choice_numbers), 1)
+        if winning_number in choice_numbers:
+            win = True
+        choice_display = f"Numbers: {', '.join(map(str, sorted(choice_numbers)))}"
+    elif choice in ROULETTE_CONFIG:
+        config = ROULETTE_CONFIG[choice]
+        if winning_number in config["numbers"]:
+            win = True
+            multiplier = config["multiplier"]
+        choice_display = choice.upper()
+    else:
+        choice_display = choice
+    
+    # Determine color
+    if winning_number == 0: 
+        color = "🟢 Green"
+    elif winning_number in ROULETTE_CONFIG["red"]["numbers"]: 
+        color = "🔴 Red"
+    else: 
+        color = "⚫ Black"
+    
+    # Process win/loss
+    if win:
+        winnings = bet_amount * multiplier
+        user_wallets[user.id] += winnings
+        result_text = f"🎉 You win ${winnings:.2f}! (Multiplier: {multiplier}x)"
+        update_stats_on_bet(user.id, game_id, bet_amount, True, multiplier=multiplier, context=context)
+    else:
+        result_text = f"😢 You lose ${bet_amount:.2f}. Better luck next time!"
+        update_stats_on_bet(user.id, game_id, bet_amount, False, context=context)
+    
+    # Increment nonce
+    increment_user_nonce(user.id)
+    
+    # Store game session
+    game_sessions[game_id] = {
+        "id": game_id, "game_type": "roulette", "user_id": user.id,
+        "bet_amount": bet_amount, "status": "completed", "timestamp": str(datetime.now(timezone.utc)),
+        "win": win, "multiplier": multiplier, "choice": choice, "result": winning_number,
+        "server_seed": seeds["server_seed"], "client_seed": seeds["client_seed"], "nonce": seeds["nonce"]
+    }
+    update_pnl(user.id)
+    save_user_data(user.id)
+    
+    # Store provably fair record
+    store_provably_fair_record(game_id, "roulette", seeds["server_seed"], seeds["client_seed"], seeds["nonce"], 
+                               result_data=f"Winning number: {winning_number}, Choice: {choice}")
+    
+    # Add provably fair button
+    keyboard = [[await create_provably_fair_button(game_id, context)]]
+    
+    await query.edit_message_text(
+        f"🎯 <b>Roulette Result</b> (ID: <code>{game_id}</code>)\n\n"
+        f"🎰 Winning Number: <b>{winning_number}</b> {color}\n"
+        f"🎲 Your Choice: {choice_display}\n"
+        f"💰 Your Bet: ${bet_amount:.2f}\n\n{result_text}",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    
+    # Clear user data
+    context.user_data.clear()
 
 # 4. DICE ROLL GAME
 @check_banned
@@ -14227,6 +14589,7 @@ def main():
     app.add_handler(CallbackQueryHandler(price_update_callback, pattern=r"^price_update_")) # NEW
     app.add_handler(CallbackQueryHandler(game_info_callback, pattern=r"^game_")); app.add_handler(CallbackQueryHandler(blackjack_callback, pattern=r"^bj_"))
     app.add_handler(CallbackQueryHandler(coin_flip_callback, pattern=r"^flip_")); app.add_handler(CallbackQueryHandler(tower_callback, pattern=r"^tower_"))
+    app.add_handler(CallbackQueryHandler(roulette_callback, pattern=r"^roul_"))  # NEW - Roulette interactive menu
     app.add_handler(CallbackQueryHandler(highlow_callback, pattern=r"^hl_"))  # NEW - High-Low game callbacks
     app.add_handler(CallbackQueryHandler(keno_callback, pattern=r"^keno_")) # NEW - Keno game callbacks
     app.add_handler(CallbackQueryHandler(coinchain_callback, pattern=r"^coinchain_")) # NEW - Coin Chain game callbacks
