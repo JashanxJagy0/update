@@ -216,7 +216,54 @@ _price_cache_timestamp = {}
 PRICE_CACHE_TTL = 60  # seconds
 
 # ========================================
-# Helper functions removed - using standard Telegram buttons
+# Button Style Helper Functions (Telegram Bot API 9.4)
+# ========================================
+
+def apply_button_style(button, style):
+    """
+    Apply style to InlineKeyboardButton using dict injection workaround.
+    
+    Telegram Bot API 9.4 supports button styles but python-telegram-bot library
+    doesn't have native support yet. This workaround manually injects the style
+    parameter into the button dictionary.
+    
+    Args:
+        button: InlineKeyboardButton object
+        style: One of 'success' (green), 'danger' (red), or 'primary' (blue)
+    
+    Returns:
+        dict: Button dictionary with style parameter injected
+    """
+    btn_dict = button.to_dict()
+    btn_dict['style'] = style
+    return btn_dict
+
+def create_styled_keyboard(keyboard_array):
+    """
+    Create a styled keyboard from a 2D array of buttons/dicts.
+    
+    Converts a keyboard array (with styled button dicts) into the proper format
+    expected by Telegram Bot API for sending with reply_markup parameter.
+    
+    Args:
+        keyboard_array: 2D list of InlineKeyboardButton objects or dicts
+    
+    Returns:
+        dict: Formatted keyboard in {'inline_keyboard': [[...]]} format
+    """
+    styled_rows = []
+    for row in keyboard_array:
+        styled_row = []
+        for item in row:
+            if isinstance(item, dict):
+                # Already a dict (possibly with style), use as-is
+                styled_row.append(item)
+            else:
+                # InlineKeyboardButton object, convert to dict
+                styled_row.append(item.to_dict() if hasattr(item, 'to_dict') else item)
+        styled_rows.append(styled_row)
+    return {'inline_keyboard': styled_rows}
+
 # ========================================
 
 async def get_crypto_price_usd(symbol):
@@ -4426,28 +4473,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_currency = get_user_currency(user.id)
     formatted_balance = format_balance_with_locked(user.id, user_currency)
 
-    # NEW UI STRUCTURE - Casino themed with emoji-based colors
+    # NEW UI STRUCTURE - Casino themed with COLORED buttons (Bot API 9.4)
     keyboard = [
-        # Row 1: Deposit & Withdraw
+        # Row 1: Deposit & Withdraw with styles
         [
-            InlineKeyboardButton("🔵 Deposit", callback_data="main_deposit"),
-            InlineKeyboardButton("🟢 Withdraw", callback_data="main_withdraw")
+            apply_button_style(InlineKeyboardButton("💎 Deposit", callback_data="main_deposit"), 'primary'),  # BLUE
+            apply_button_style(InlineKeyboardButton("💸 Withdraw", callback_data="main_withdraw"), 'success')  # GREEN
         ],
-        # Row 2: Games & More
+        # Row 2: Games & More with styles
         [
-            InlineKeyboardButton("🔵 Games", callback_data="main_games"),
-            InlineKeyboardButton("🔴 More", callback_data="main_more")
+            apply_button_style(InlineKeyboardButton("🎮 Games", callback_data="main_games"), 'primary'),  # BLUE
+            apply_button_style(InlineKeyboardButton("📊 More", callback_data="main_more"), 'danger')  # RED
         ],
         # Row 3: Settings
     ]
 
     # Add Settings button only in DMs
     if update.effective_chat.type == "private":
-        keyboard.append([InlineKeyboardButton("⚙️ Settings", callback_data="main_settings")])
+        keyboard.append([InlineKeyboardButton("⚙️ Settings", callback_data="main_settings").to_dict()])
 
     # Row 5: Admin Dashboard (only for admin)
     if user.id == BOT_OWNER_ID:
-        keyboard.append([InlineKeyboardButton(get_text("admin_panel", user_lang), callback_data="admin_dashboard")])
+        keyboard.append([InlineKeyboardButton(get_text("admin_panel", user_lang), callback_data="admin_dashboard").to_dict()])
 
     # Get total wagers for display
     stats = user_stats.get(user.id, {})
@@ -4457,15 +4504,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Create links row
     links_row = []
     if LINK_PORTAL:
-        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL))
+        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
     if LINK_CHANNEL:
-        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL))
+        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
     
     links_row_2 = []
     if LINK_CHAT:
-        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT))
+        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
     if LINK_SUPPORT:
-        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT))
+        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
     
     # Add links rows if they have buttons
     if links_row:
@@ -4481,8 +4528,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎮 Choose an option below to get started!"
     )
 
-    # Create standard InlineKeyboardMarkup
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Create styled keyboard using helper function
+    reply_markup = create_styled_keyboard(keyboard)
 
     # Send dashboard image with welcome message in caption (NEW FEATURE - Combined)
     dashboard_image = await generate_dashboard_image(user.id, context)
@@ -6259,35 +6306,38 @@ def get_roulette_number_emoji(number):
         return "⚫"
 
 def create_roulette_menu_keyboard(user_id, bet_amount):
-    """Create the main roulette menu with betting options"""
+    """Create the main roulette menu with betting options (COLORED buttons - Bot API 9.4)"""
     keyboard = [
-        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_{user_id}")],
-        [InlineKeyboardButton("🎯 Bet on Number", callback_data=f"roul_bet_number_{user_id}")],
-        [InlineKeyboardButton("1-12", callback_data=f"roul_1-12_{user_id}"),
-         InlineKeyboardButton("13-24", callback_data=f"roul_13-24_{user_id}"),
-         InlineKeyboardButton("25-36", callback_data=f"roul_25-36_{user_id}")],
-        [InlineKeyboardButton("1-18", callback_data=f"roul_1-18_{user_id}"),
-         InlineKeyboardButton("19-36", callback_data=f"roul_19-36_{user_id}")],
-        [InlineKeyboardButton("Even", callback_data=f"roul_even_{user_id}"),
-         InlineKeyboardButton("Odd", callback_data=f"roul_odd_{user_id}")],
-        [InlineKeyboardButton("🔴 Red", callback_data=f"roul_red_{user_id}"),
-         InlineKeyboardButton("⚫ Black", callback_data=f"roul_black_{user_id}")],
-        [InlineKeyboardButton("🔴 Cancel Bet", callback_data=f"roul_cancel_{user_id}")]
+        [apply_button_style(InlineKeyboardButton("▶️ Start", callback_data=f"roul_start_{user_id}"), 'success')],  # GREEN
+        [InlineKeyboardButton("🎯 Bet on Number", callback_data=f"roul_bet_number_{user_id}").to_dict()],
+        [InlineKeyboardButton("1-12", callback_data=f"roul_1-12_{user_id}").to_dict(),
+         InlineKeyboardButton("13-24", callback_data=f"roul_13-24_{user_id}").to_dict(),
+         InlineKeyboardButton("25-36", callback_data=f"roul_25-36_{user_id}").to_dict()],
+        [InlineKeyboardButton("1-18", callback_data=f"roul_1-18_{user_id}").to_dict(),
+         InlineKeyboardButton("19-36", callback_data=f"roul_19-36_{user_id}").to_dict()],
+        [InlineKeyboardButton("Even", callback_data=f"roul_even_{user_id}").to_dict(),
+         InlineKeyboardButton("Odd", callback_data=f"roul_odd_{user_id}").to_dict()],
+        [InlineKeyboardButton("🔴 Red", callback_data=f"roul_red_{user_id}").to_dict(),
+         InlineKeyboardButton("⚫ Black", callback_data=f"roul_black_{user_id}").to_dict()],
+        [apply_button_style(InlineKeyboardButton("❌ Cancel Bet", callback_data=f"roul_cancel_{user_id}"), 'danger')]  # RED
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return create_styled_keyboard(keyboard)
 
 def create_roulette_number_selection_keyboard(user_id, selected_numbers):
-    """Create keyboard for number selection (0-36) with 3 numbers per row"""
+    """Create keyboard for number selection (0-36) with 3 numbers per row (COLORED buttons)"""
     keyboard = [
-        # Row 1: Start button
-        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_numbers_{user_id}")]
+        # Row 1: GREEN Start button
+        [apply_button_style(InlineKeyboardButton("▶️ Start", callback_data=f"roul_start_numbers_{user_id}"), 'success')]
     ]
     
     # Row 2: Number 0 alone
     emoji_0 = get_roulette_number_emoji(0)
     selected_0 = "✅ " if 0 in selected_numbers else ""
     btn_0 = InlineKeyboardButton(f"{selected_0}{emoji_0}  0  ", callback_data=f"roul_num_0_{user_id}")
-    keyboard.append([btn_0])
+    if 0 in selected_numbers:
+        keyboard.append([apply_button_style(btn_0, 'success')])  # GREEN if selected
+    else:
+        keyboard.append([btn_0.to_dict()])
     
     # Rows 3-14: Numbers 1-36 in rows of 3 (12 rows total)
     for row_start in range(1, 37, 3):
@@ -6296,13 +6346,16 @@ def create_roulette_number_selection_keyboard(user_id, selected_numbers):
             emoji = get_roulette_number_emoji(num)
             selected = "✅ " if num in selected_numbers else ""
             btn = InlineKeyboardButton(f"{selected}{emoji}  {num}  ", callback_data=f"roul_num_{num}_{user_id}")
-            row.append(btn)
+            if num in selected_numbers:
+                row.append(apply_button_style(btn, 'success'))  # GREEN if selected
+            else:
+                row.append(btn.to_dict())
         keyboard.append(row)
     
-    # Last row: Back button
-    keyboard.append([InlineKeyboardButton("🔴 Back", callback_data=f"roul_back_{user_id}")])
+    # Last row: RED Back button
+    keyboard.append([apply_button_style(InlineKeyboardButton("🔙 Back", callback_data=f"roul_back_{user_id}"), 'danger')])
     
-    return InlineKeyboardMarkup(keyboard)
+    return create_styled_keyboard(keyboard)
 
 @check_banned
 @check_maintenance
@@ -6895,18 +6948,22 @@ async def tower_intro(update: Update, context: ContextTypes.DEFAULT_TYPE, bet_am
     )
     
     keyboard = [
-        # Green start button
-        [InlineKeyboardButton("🟢 Start Game", callback_data=f"tower_start_game")],
-        # Difficulty selector buttons
-        [InlineKeyboardButton("◀️", callback_data="tower_diff_prev"), 
-         InlineKeyboardButton(f"🔵 {diff_config['name']}", callback_data="tower_diff_info"),
-         InlineKeyboardButton("▶️", callback_data="tower_diff_next")],
-        [InlineKeyboardButton("📖 Rules", callback_data="tower_rules"),
-         InlineKeyboardButton("📊 Multiplier Table", callback_data="tower_multipliers")],
-        [InlineKeyboardButton("🔴 Back", callback_data="cancel_game")]
+        # GREEN start button
+        [apply_button_style(InlineKeyboardButton("▶️ Start Game", callback_data=f"tower_start_game"), 'success')],
+        # Difficulty selector buttons (BLUE for current difficulty)
+        [
+            InlineKeyboardButton("◀️", callback_data="tower_diff_prev").to_dict(),
+            apply_button_style(InlineKeyboardButton(f"⚙️ {diff_config['name']}", callback_data="tower_diff_info"), 'primary'),  # BLUE
+            InlineKeyboardButton("▶️", callback_data="tower_diff_next").to_dict()
+        ],
+        [
+            InlineKeyboardButton("📖 Rules", callback_data="tower_rules").to_dict(),
+            InlineKeyboardButton("📊 Multiplier Table", callback_data="tower_multipliers").to_dict()
+        ],
+        [apply_button_style(InlineKeyboardButton("🔙 Back", callback_data="cancel_game"), 'danger')]  # RED
     ]
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = create_styled_keyboard(keyboard)
     
     if from_callback:
         query = update.callback_query
@@ -8615,40 +8672,43 @@ async def limbo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- KENO GAME FUNCTIONS ---
 def create_keno_keyboard(game_id, selected_numbers):
-    """Create the 40-number grid for Keno with emoji-based colors"""
+    """Create the 40-number grid for Keno with COLORED buttons (Bot API 9.4)"""
     buttons = []
     for i in range(1, 41):
+        btn = InlineKeyboardButton(str(i) if i not in selected_numbers else f"✓ {i}", 
+                                   callback_data=f"keno_pick_{game_id}_{i}")
+        # Apply styles: primary (blue) for unselected, success (green) for selected
         if i in selected_numbers:
-            # Selected: Green checkmark
-            btn = InlineKeyboardButton(f"✓ {i}", callback_data=f"keno_pick_{game_id}_{i}")
+            buttons.append(apply_button_style(btn, 'success'))  # GREEN for selected
         else:
-            # Unselected: Just the number
-            btn = InlineKeyboardButton(str(i), callback_data=f"keno_pick_{game_id}_{i}")
-        buttons.append(btn)
+            buttons.append(apply_button_style(btn, 'primary'))  # BLUE for unselected
     
     # Create 8 rows of 5 numbers each
     keyboard = [buttons[i:i+5] for i in range(0, 40, 5)]
     
-    # Add action buttons
+    # Add action buttons (with .to_dict() for non-styled buttons)
     action_row1 = [
-        InlineKeyboardButton("ℹ️ How to Play", callback_data=f"keno_info_{game_id}"),
-        InlineKeyboardButton("🗑️ Clear All", callback_data=f"keno_clear_{game_id}")
+        InlineKeyboardButton("ℹ️ How to Play", callback_data=f"keno_info_{game_id}").to_dict(),
+        InlineKeyboardButton("🗑️ Clear All", callback_data=f"keno_clear_{game_id}").to_dict()
     ]
     action_row2 = [
-        InlineKeyboardButton("📊 Payout Table", callback_data=f"keno_payout_{game_id}"),
-        InlineKeyboardButton("🔴 Cancel", callback_data=f"keno_cancel_{game_id}")
+        InlineKeyboardButton("📊 Payout Table", callback_data=f"keno_payout_{game_id}").to_dict(),
+        apply_button_style(InlineKeyboardButton("❌ Cancel", callback_data=f"keno_cancel_{game_id}"), 'danger')  # RED
     ]
     
-    # Add place bet button if numbers are selected
+    # Add place bet button if numbers are selected (GREEN)
     if selected_numbers:
         action_row3 = [
-            InlineKeyboardButton(f"🟢 Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}")
+            apply_button_style(
+                InlineKeyboardButton(f"✅ Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}"),
+                'success'  # GREEN
+            )
         ]
         keyboard.extend([action_row1, action_row2, action_row3])
     else:
         keyboard.extend([action_row1, action_row2])
     
-    return InlineKeyboardMarkup(keyboard)
+    return create_styled_keyboard(keyboard)
 
 def get_keno_payout_text():
     """Get formatted payout table"""
@@ -9523,21 +9583,31 @@ def mines_keyboard(game_id, reveal=False):
             emoji = "🟦"  # Blue tile for colorful grid
         # Add user_id to callback for user-specific buttons
         btn = InlineKeyboardButton(emoji, callback_data=f"mines_pick_{game_id}_{i}_{user_id}")
-        buttons.append(btn)
+        # Apply primary style (BLUE) to unselected tiles
+        if emoji == "🟦":
+            buttons.append(apply_button_style(btn, 'primary'))  # BLUE
+        else:
+            buttons.append(btn.to_dict())
 
     keyboard = [buttons[i:i+num_per_row] for i in range(0, len(buttons), num_per_row)]
     if game["status"] == 'active' and game["picks"]:
         safe_picks = len(game["picks"])
         multiplier = get_mines_multiplier(game["num_mines"], safe_picks)
         winnings = game["bet_amount"] * multiplier
-        # Green cashout button
+        # GREEN cashout button
         cashout_text = f"💰 Cashout (${winnings:.2f})"
-        cashout_btn = InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}_{user_id}")
+        cashout_btn = apply_button_style(
+            InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}_{user_id}"),
+            'success'  # GREEN
+        )
         keyboard.append([cashout_btn])
-        # Random button
-        random_btn = InlineKeyboardButton("🎲 Random", callback_data=f"mines_random_{game_id}_{user_id}")
+        # BLUE random button
+        random_btn = apply_button_style(
+            InlineKeyboardButton("🎲 Random", callback_data=f"mines_random_{game_id}_{user_id}"),
+            'primary'  # BLUE
+        )
         keyboard.append([random_btn])
-    return InlineKeyboardMarkup(keyboard)
+    return create_styled_keyboard(keyboard)
 
 @check_banned
 @check_maintenance
@@ -12425,23 +12495,23 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             msg += "No wins recorded yet.\n"
     
-    # Create inline buttons (user-specific)
+    # Create inline buttons (user-specific, COLORED buttons - Bot API 9.4)
     keyboard = [
         [
-            InlineKeyboardButton("📅 Weekly", callback_data=f"leaderboard_weekly_{user_id}"),
-            InlineKeyboardButton("📆 Monthly", callback_data=f"leaderboard_monthly_{user_id}")
+            InlineKeyboardButton("📅 Weekly", callback_data=f"leaderboard_weekly_{user_id}").to_dict(),
+            InlineKeyboardButton("📆 Monthly", callback_data=f"leaderboard_monthly_{user_id}").to_dict()
         ],
         [
-            InlineKeyboardButton("💰 Highest Wins", callback_data=f"leaderboard_wins_{user_id}")
+            InlineKeyboardButton("💰 Highest Wins", callback_data=f"leaderboard_wins_{user_id}").to_dict()
         ],
         [
-            InlineKeyboardButton("🏆 All Time", callback_data=f"leaderboard_alltime_{user_id}")
+            InlineKeyboardButton("🏆 All Time", callback_data=f"leaderboard_alltime_{user_id}").to_dict()
         ],
         [
-            InlineKeyboardButton("🔴 Back to More", callback_data="main_more")
+            apply_button_style(InlineKeyboardButton("🔙 Back to More", callback_data="main_more"), 'danger')  # RED
         ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = create_styled_keyboard(keyboard)
 
     if from_callback:
         await safe_edit_message(update.callback_query, msg, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
