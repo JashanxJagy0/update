@@ -4507,24 +4507,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_wagered = stats.get('bets', {}).get('amount', 0.0)
     formatted_wagers = format_currency(total_wagered, user_currency)
     
-    # Create links row
-    links_row = []
-    if LINK_PORTAL:
-        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
-    if LINK_CHANNEL:
-        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
-    
-    links_row_2 = []
-    if LINK_CHAT:
-        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
-    if LINK_SUPPORT:
-        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
-    
-    # Add links rows if they have buttons
-    if links_row:
-        keyboard.append(links_row)
-    if links_row_2:
-        keyboard.append(links_row_2)
+    # Create links row - Only show in DMs to avoid spam in groups
+    if update.effective_chat.type == "private":
+        links_row = []
+        if LINK_PORTAL:
+            links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
+        if LINK_CHANNEL:
+            links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
+        
+        links_row_2 = []
+        if LINK_CHAT:
+            links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
+        if LINK_SUPPORT:
+            links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
+        
+        # Add links rows if they have buttons
+        if links_row:
+            keyboard.append(links_row)
+        if links_row_2:
+            keyboard.append(links_row_2)
     
     welcome_text = (
         "🐱 <b>Welcome to Casino ⚡</b>\n\n"
@@ -4878,24 +4879,30 @@ async def start_command_inline(query, context):
     if user.id == BOT_OWNER_ID:
         keyboard.append([InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_dashboard").to_dict()])
 
-    # Create links row
-    links_row = []
-    if LINK_PORTAL:
-        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
-    if LINK_CHANNEL:
-        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
+    # Create links row - Only show in DMs to avoid spam in groups
+    try:
+        is_private = query.message and query.message.chat and query.message.chat.type == "private"
+    except AttributeError:
+        is_private = True  # Default to showing links if we can't determine
     
-    links_row_2 = []
-    if LINK_CHAT:
-        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
-    if LINK_SUPPORT:
-        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
-    
-    # Add links rows if they have buttons
-    if links_row:
-        keyboard.append(links_row)
-    if links_row_2:
-        keyboard.append(links_row_2)
+    if is_private:
+        links_row = []
+        if LINK_PORTAL:
+            links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
+        if LINK_CHANNEL:
+            links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
+        
+        links_row_2 = []
+        if LINK_CHAT:
+            links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
+        if LINK_SUPPORT:
+            links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
+        
+        # Add links rows if they have buttons
+        if links_row:
+            keyboard.append(links_row)
+        if links_row_2:
+            keyboard.append(links_row_2)
 
     welcome_text = (
         "🐱 <b>Welcome to Casino ⚡</b>\n\n"
