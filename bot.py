@@ -6375,9 +6375,11 @@ async def tower_intro(update: Update, context: ContextTypes.DEFAULT_TYPE, bet_am
     )
     
     keyboard = [
-        [InlineKeyboardButton("▶️ Start Game", callback_data=f"tower_start_game")],
+        # NEW: Green start button with emoji
+        [InlineKeyboardButton("🟢 Start Game", callback_data=f"tower_start_game")],
+        # NEW: Sky blue difficulty buttons with emoji
         [InlineKeyboardButton("◀️", callback_data="tower_diff_prev"), 
-         InlineKeyboardButton(f"{diff_config['name']}", callback_data="tower_diff_info"),
+         InlineKeyboardButton(f"🔵 {diff_config['name']}", callback_data="tower_diff_info"),
          InlineKeyboardButton("▶️", callback_data="tower_diff_next")],
         [InlineKeyboardButton("📖 Rules", callback_data="tower_rules"),
          InlineKeyboardButton("📊 Multiplier Table", callback_data="tower_multipliers")],
