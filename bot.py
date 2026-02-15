@@ -4422,17 +4422,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_currency = get_user_currency(user.id)
     formatted_balance = format_balance_with_locked(user.id, user_currency)
 
-    # NEW UI STRUCTURE - Casino themed with premium emojis
+    # NEW UI STRUCTURE - Casino themed with colored button styles (Bot API 7.0+)
     keyboard = [
         # Row 1: Deposit & Withdraw
         [
-            InlineKeyboardButton("🔵 Deposit", callback_data="main_deposit"),
-            InlineKeyboardButton("🟢 Withdraw", callback_data="main_withdraw")
+            InlineKeyboardButton("💎 Deposit", callback_data="main_deposit"),
+            InlineKeyboardButton("💸 Withdraw", callback_data="main_withdraw", style="positive")
         ],
         # Row 2: Games & More
         [
-            InlineKeyboardButton("🔵 Games", callback_data="main_games"),
-            InlineKeyboardButton("🔴 More", callback_data="main_more")
+            InlineKeyboardButton("🎮 Games", callback_data="main_games"),
+            InlineKeyboardButton("➕ More", callback_data="main_more")
         ],
         # Row 3: Settings
     ]
@@ -6252,9 +6252,9 @@ def get_roulette_number_emoji(number):
         return "⚫"
 
 def create_roulette_menu_keyboard(user_id, bet_amount):
-    """Create the main roulette menu with betting options"""
+    """Create the main roulette menu with betting options and colored buttons"""
     keyboard = [
-        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_{user_id}")],
+        [InlineKeyboardButton("▶️ Start", callback_data=f"roul_start_{user_id}", style="positive")],
         [InlineKeyboardButton("🎯 Bet on Number", callback_data=f"roul_bet_number_{user_id}")],
         [InlineKeyboardButton("1-12", callback_data=f"roul_1-12_{user_id}"),
          InlineKeyboardButton("13-24", callback_data=f"roul_13-24_{user_id}"),
@@ -6265,21 +6265,25 @@ def create_roulette_menu_keyboard(user_id, bet_amount):
          InlineKeyboardButton("Odd", callback_data=f"roul_odd_{user_id}")],
         [InlineKeyboardButton("🔴 Red", callback_data=f"roul_red_{user_id}"),
          InlineKeyboardButton("⚫ Black", callback_data=f"roul_black_{user_id}")],
-        [InlineKeyboardButton("❌ Cancel Bet", callback_data=f"roul_cancel_{user_id}")]
+        [InlineKeyboardButton("❌ Cancel Bet", callback_data=f"roul_cancel_{user_id}", style="destructive")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def create_roulette_number_selection_keyboard(user_id, selected_numbers):
-    """Create keyboard for number selection (0-36) with 3 numbers per row"""
+    """Create keyboard for number selection (0-36) with 3 numbers per row and colored buttons"""
     keyboard = [
-        # Row 1: Start button
-        [InlineKeyboardButton("🟢 Start", callback_data=f"roul_start_numbers_{user_id}")]
+        # Row 1: Start button with positive style
+        [InlineKeyboardButton("▶️ Start", callback_data=f"roul_start_numbers_{user_id}", style="positive")]
     ]
     
     # Row 2: Number 0 alone
     emoji_0 = get_roulette_number_emoji(0)
     selected_0 = "✅ " if 0 in selected_numbers else ""
-    keyboard.append([InlineKeyboardButton(f"{selected_0}{emoji_0} 0", callback_data=f"roul_num_0_{user_id}")])
+    # Apply positive style to selected numbers
+    if 0 in selected_numbers:
+        keyboard.append([InlineKeyboardButton(f"{selected_0}{emoji_0}  0  ", callback_data=f"roul_num_0_{user_id}", style="positive")])
+    else:
+        keyboard.append([InlineKeyboardButton(f"{emoji_0}  0  ", callback_data=f"roul_num_0_{user_id}")])
     
     # Rows 3-14: Numbers 1-36 in rows of 3 (12 rows total)
     for row_start in range(1, 37, 3):
@@ -6287,12 +6291,15 @@ def create_roulette_number_selection_keyboard(user_id, selected_numbers):
         for num in range(row_start, min(row_start + 3, 37)):
             emoji = get_roulette_number_emoji(num)
             selected = "✅ " if num in selected_numbers else ""
-            # Add spacing for better visibility
-            row.append(InlineKeyboardButton(f"{selected}{emoji}  {num}  ", callback_data=f"roul_num_{num}_{user_id}"))
+            # Add spacing for better visibility and apply positive style to selected
+            if num in selected_numbers:
+                row.append(InlineKeyboardButton(f"{selected}{emoji}  {num}  ", callback_data=f"roul_num_{num}_{user_id}", style="positive"))
+            else:
+                row.append(InlineKeyboardButton(f"{emoji}  {num}  ", callback_data=f"roul_num_{num}_{user_id}"))
         keyboard.append(row)
     
-    # Last row: Back button
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"roul_back_{user_id}")])
+    # Last row: Back button with destructive style
+    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"roul_back_{user_id}", style="destructive")])
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -6887,15 +6894,15 @@ async def tower_intro(update: Update, context: ContextTypes.DEFAULT_TYPE, bet_am
     )
     
     keyboard = [
-        # NEW: Green start button with emoji
-        [InlineKeyboardButton("🟢 Start Game", callback_data=f"tower_start_game")],
-        # NEW: Sky blue difficulty buttons with emoji
+        # Green start button with positive style
+        [InlineKeyboardButton("▶️ Start Game", callback_data=f"tower_start_game", style="positive")],
+        # Difficulty selector buttons
         [InlineKeyboardButton("◀️", callback_data="tower_diff_prev"), 
-         InlineKeyboardButton(f"🔵 {diff_config['name']}", callback_data="tower_diff_info"),
+         InlineKeyboardButton(f"⚙️ {diff_config['name']}", callback_data="tower_diff_info"),
          InlineKeyboardButton("▶️", callback_data="tower_diff_next")],
         [InlineKeyboardButton("📖 Rules", callback_data="tower_rules"),
          InlineKeyboardButton("📊 Multiplier Table", callback_data="tower_multipliers")],
-        [InlineKeyboardButton("🔙 Back", callback_data="cancel_game")]
+        [InlineKeyboardButton("🔙 Back", callback_data="cancel_game", style="destructive")]
     ]
     
     if from_callback:
@@ -8605,14 +8612,15 @@ async def limbo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- KENO GAME FUNCTIONS ---
 def create_keno_keyboard(game_id, selected_numbers):
-    """Create the 40-number grid for Keno"""
+    """Create the 40-number grid for Keno with colored button styles (Bot API 7.0+)"""
     buttons = []
     for i in range(1, 41):
         if i in selected_numbers:
-            emoji = f"🟢 {i}"  # Green for selected
+            # Selected: Green background with positive style
+            buttons.append(InlineKeyboardButton(f"✓ {i}", callback_data=f"keno_pick_{game_id}_{i}", style="positive"))
         else:
-            emoji = f"🔵 {i}"  # Blue for unselected
-        buttons.append(InlineKeyboardButton(emoji, callback_data=f"keno_pick_{game_id}_{i}"))
+            # Unselected: Default style
+            buttons.append(InlineKeyboardButton(str(i), callback_data=f"keno_pick_{game_id}_{i}"))
     
     # Create 8 rows of 5 numbers each
     keyboard = [buttons[i:i+5] for i in range(0, 40, 5)]
@@ -8624,12 +8632,12 @@ def create_keno_keyboard(game_id, selected_numbers):
     ]
     action_row2 = [
         InlineKeyboardButton("📊 Payout Table", callback_data=f"keno_payout_{game_id}"),
-        InlineKeyboardButton("❌ Cancel", callback_data=f"keno_cancel_{game_id}")
+        InlineKeyboardButton("❌ Cancel", callback_data=f"keno_cancel_{game_id}", style="destructive")
     ]
     
-    # Add place bet button if numbers are selected (green button)
+    # Add place bet button if numbers are selected (green button with positive style)
     if selected_numbers:
-        action_row3 = [InlineKeyboardButton(f"🟢 Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}")]
+        action_row3 = [InlineKeyboardButton(f"✅ Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}", style="positive")]
         keyboard.extend([action_row1, action_row2, action_row3])
     else:
         keyboard.extend([action_row1, action_row2])
@@ -9502,7 +9510,7 @@ def mines_keyboard(game_id, reveal=False):
         if i in game["picks"]: emoji = "✅"
         elif reveal and i in game["mines"]: emoji = "💥"
         elif reveal: emoji = "💎"
-        else: emoji = "🟦"  # NEW: Blue tile for colorful grid
+        else: emoji = "◻️"  # Clean tile for grid
         # NEW: Add user_id to callback for user-specific buttons
         buttons.append(InlineKeyboardButton(emoji, callback_data=f"mines_pick_{game_id}_{i}_{user_id}"))
 
@@ -9511,10 +9519,10 @@ def mines_keyboard(game_id, reveal=False):
         safe_picks = len(game["picks"])
         multiplier = get_mines_multiplier(game["num_mines"], safe_picks)
         winnings = game["bet_amount"] * multiplier
-        # NEW: Green cashout button with emoji
+        # Green cashout button with positive style
         cashout_text = f"💰 Cashout (${winnings:.2f})"
-        keyboard.append([InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}_{user_id}")])
-        # NEW: Random button (blue) for random tile selection
+        keyboard.append([InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}_{user_id}", style="positive")])
+        # Random button for random tile selection
         keyboard.append([InlineKeyboardButton("🎲 Random", callback_data=f"mines_random_{game_id}_{user_id}")])
     return InlineKeyboardMarkup(keyboard)
 
@@ -12404,7 +12412,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             msg += "No wins recorded yet.\n"
     
-    # Create inline buttons (user-specific)
+    # Create inline buttons (user-specific) with colored styles
     keyboard = [
         [
             InlineKeyboardButton("📅 Weekly", callback_data=f"leaderboard_weekly_{user_id}"),
@@ -12417,7 +12425,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             InlineKeyboardButton("🏆 All Time", callback_data=f"leaderboard_alltime_{user_id}")
         ],
         [
-            InlineKeyboardButton("🔙 Back to More", callback_data="main_more")
+            InlineKeyboardButton("🔙 Back to More", callback_data="main_more", style="destructive")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard) if from_callback else InlineKeyboardMarkup(keyboard)
