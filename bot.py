@@ -8981,21 +8981,26 @@ def mines_keyboard(game_id, reveal=False):
 
     total_cells = game["total_cells"]
     num_per_row = 5
+    user_id = game.get("user_id")
     buttons = []
     for i in range(1, total_cells + 1):
         if i in game["picks"]: emoji = "✅"
         elif reveal and i in game["mines"]: emoji = "💥"
         elif reveal: emoji = "💎"
-        else: emoji = "❓"
-        buttons.append(InlineKeyboardButton(emoji, callback_data=f"mines_pick_{game_id}_{i}"))
+        else: emoji = "🟦"  # NEW: Blue tile for colorful grid
+        # NEW: Add user_id to callback for user-specific buttons
+        buttons.append(InlineKeyboardButton(emoji, callback_data=f"mines_pick_{game_id}_{i}_{user_id}"))
 
     keyboard = [buttons[i:i+num_per_row] for i in range(0, len(buttons), num_per_row)]
     if game["status"] == 'active' and game["picks"]:
         safe_picks = len(game["picks"])
         multiplier = get_mines_multiplier(game["num_mines"], safe_picks)
         winnings = game["bet_amount"] * multiplier
-        cashout_text = f"💸 Cashout (${winnings:.2f})"
-        keyboard.append([InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}")])
+        # NEW: Green cashout button with emoji
+        cashout_text = f"💰 Cashout (${winnings:.2f})"
+        keyboard.append([InlineKeyboardButton(cashout_text, callback_data=f"mines_cashout_{game_id}_{user_id}")])
+        # NEW: Random button (blue) for random tile selection
+        keyboard.append([InlineKeyboardButton("🎲 Random", callback_data=f"mines_random_{game_id}_{user_id}")])
     return InlineKeyboardMarkup(keyboard)
 
 @check_banned
@@ -9073,7 +9078,14 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("No active mines game found, it has ended, or it is not your game.", reply_markup=None)
         return
 
-    # NEW: Game interaction security
+    # NEW: Enhanced user-specific security check
+    if len(parts) >= 4 and parts[3].isdigit():
+        button_user_id = int(parts[3])
+        if user.id != button_user_id:
+            await query.answer("This is not your game!", show_alert=True)
+            return
+    
+    # Fallback security check
     if user.id != game.get('user_id'):
         await query.answer("This is not your game!", show_alert=True)
         return
@@ -9083,6 +9095,94 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("This game has already ended.", show_alert=True)
         return
 
+    # NEW: Handle random tile selection
+    if action == "random":
+        # Get unpicked tiles
+        unpicked = [i for i in range(1, game["total_cells"] + 1) if i not in game["picks"]]
+        if not unpicked:
+            await query.answer("No tiles left to pick!", show_alert=True)
+            return
+        
+        # Randomly select a tile
+        cell = random.choice(unpicked)
+        
+        # Check if it's a mine
+        if cell in game["mines"]:
+            game["status"] = 'completed'
+            game["win"] = False
+            increment_user_nonce(user.id)
+            update_stats_on_bet(user.id, game_id, game['bet_amount'], win=False, context=context)
+            update_pnl(user.id)
+            save_user_data(user.id)
+            
+            # Store provably fair record
+            store_provably_fair_record(game_id, "mines", game["server_seed"], game["client_seed"], game["nonce"], 
+                                       result_data=f"Hit mine at tile {cell} (Random), Mine positions: {game['mines']}")
+            
+            # Add provably fair button
+            keyboard = [[await create_provably_fair_button(game_id, context)]]
+            keyboard_with_reveal = mines_keyboard(game_id, reveal=True)
+            # Append PF button to revealed board
+            keyboard_with_reveal = InlineKeyboardMarkup(
+                list(keyboard_with_reveal.inline_keyboard) + [keyboard[0]]
+            )
+            
+            await query.edit_message_text(
+                f"💥 <b>Boom!</b> Random picked tile {cell} - it was a mine! (ID: <code>{game_id}</code>)\n\n"
+                f"You lost your bet of <b>${game['bet_amount']:.2f}</b>.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_with_reveal
+            )
+            return
+        
+        # Safe pick
+        game["picks"].append(cell)
+        safe_picks = len(game["picks"])
+        multiplier = get_mines_multiplier(game["num_mines"], safe_picks)
+        potential_winnings = game["bet_amount"] * multiplier
+
+        if safe_picks == (game["total_cells"] - game["num_mines"]):
+            # MAX WIN
+            game["status"] = 'completed'
+            game["win"] = True
+            game["multiplier"] = multiplier
+            user_wallets[user.id] += potential_winnings
+            increment_user_nonce(user.id)
+            update_stats_on_bet(user.id, game_id, game['bet_amount'], win=True, multiplier=multiplier, context=context)
+            update_pnl(user.id)
+            save_user_data(user.id)
+            
+            # Store provably fair record
+            store_provably_fair_record(game_id, "mines", game["server_seed"], game["client_seed"], game["nonce"], 
+                                       result_data=f"Max win: {safe_picks} gems (Last Random), Multiplier: {multiplier:.2f}x, Mine positions: {game['mines']}")
+            
+            # Add provably fair button
+            keyboard = [[await create_provably_fair_button(game_id, context)]]
+            keyboard_with_reveal = mines_keyboard(game_id, reveal=True)
+            # Append PF button to revealed board
+            keyboard_with_reveal = InlineKeyboardMarkup(
+                list(keyboard_with_reveal.inline_keyboard) + [keyboard[0]]
+            )
+            
+            await query.edit_message_text(
+                f"🎉 <b>MAX WIN!</b> (ID: <code>{game_id}</code>)\n\nRandom picked tile {cell} - You found all {safe_picks} gems and won <b>${potential_winnings:.2f}</b>!\n"
+                f"Final Multiplier: <b>{multiplier:.2f}x</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard_with_reveal
+            )
+            return
+        
+        # Continue playing
+        await query.edit_message_text(
+            f"💣 <b>Mines Game</b> (ID: <code>{game_id}</code>)\n\n"
+            f"✅ Safe! Random picked tile {cell} - it's a gem!\n\n"
+            f"Bet: <b>${game['bet_amount']:.2f}</b> | Mines: <b>{game['num_mines']}</b>\n"
+            f"Safe Picks: <b>{safe_picks}</b> | Multiplier: <b>{multiplier:.2f}x</b>\n"
+            f"Potential Cashout: <b>${potential_winnings:.2f}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=mines_keyboard(game_id)
+        )
+        return
 
     if action == "cashout":
         safe_picks = len(game["picks"])
@@ -9123,7 +9223,7 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     try:
-        cell = int(parts[3])
+        cell = int(parts[3]) if len(parts) > 4 else int(parts[3])
     except (ValueError, IndexError): return
 
     if cell in game["picks"]:
@@ -9196,8 +9296,11 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     next_text = (
-        f"✅ Safe! Tile {cell} was a gem. (ID: <code>{game_id}</code>)\n\n<b>Picks:</b> {safe_picks}/{game['total_cells'] - game['num_mines']}\n"
-        f"<b>Current Multiplier:</b> {multiplier:.2f}x\n<b>Current Cashout:</b> ${potential_winnings:.2f}"
+        f"💣 <b>Mines Game</b> (ID: <code>{game_id}</code>)\n\n"
+        f"✅ Safe! Tile {cell} is a gem!\n\n"
+        f"Bet: <b>${game['bet_amount']:.2f}</b> | Mines: <b>{game['num_mines']}</b>\n"
+        f"Safe Picks: <b>{safe_picks}</b> | Multiplier: <b>{multiplier:.2f}x</b>\n"
+        f"Potential Cashout: <b>${potential_winnings:.2f}</b>"
     )
     await query.edit_message_text(next_text, parse_mode=ParseMode.HTML, reply_markup=mines_keyboard(game_id))
     await query.answer(f"Safe! Current multiplier: {multiplier:.2f}x")
@@ -14235,6 +14338,38 @@ async def start_game_conversation_from_command(update: Update, context: ContextT
     command = update.message.text.split()[0].lower()
     game_type = 'mines' if command == '/mines' else 'tower'
     context.user_data['game_type'] = game_type
+    
+    # NEW: For /mines amount, parse bet amount from command
+    if game_type == 'mines' and context.args and len(context.args) > 0:
+        user = update.effective_user
+        await ensure_user_in_wallets(user.id, user.username, context=context)
+        
+        try:
+            bet_amount_str = context.args[0].lower()
+            if bet_amount_str == 'all':
+                bet_amount = user_wallets.get(user.id, 0.0)
+            else:
+                bet_amount = float(bet_amount_str)
+        except ValueError:
+            await update.message.reply_text("Invalid bet amount. Usage: /mines <amount>\nExample: /mines 10")
+            return ConversationHandler.END
+        
+        # Check bet limits
+        if not await check_bet_limits(update, bet_amount, 'mines'):
+            return ConversationHandler.END
+        
+        # Check balance
+        if user_wallets.get(user.id, 0.0) < bet_amount:
+            await update.message.reply_text("❌ You don't have enough balance. Please enter a lower amount.")
+            return ConversationHandler.END
+        
+        # Store bet amount and ask for number of mines
+        context.user_data['bet_amount'] = bet_amount
+        buttons = [[InlineKeyboardButton(str(i), callback_data=f"bombs_{i}_{user.id}") for i in range(row, row + 8)] for row in range(1, 25, 8)]
+        text = f"💣 <b>Mines Game</b>\n\n💰 Bet Amount: ${bet_amount:.2f}\n\nSelect the number of mines (1-24):"
+        buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel_game")])
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
+        return SELECT_BOMBS
 
     if game_type == 'mines':
         buttons = [[InlineKeyboardButton(str(i), callback_data=f"bombs_{i}") for i in range(row, row + 8)] for row in range(1, 25, 8)]
@@ -14260,8 +14395,10 @@ async def start_game_conversation(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
     game_type = 'mines' if 'mines' in query.data else 'tower'
     context.user_data['game_type'] = game_type
+    user_id = query.from_user.id
 
     if game_type == 'mines':
+        # NEW: Add user_id to buttons for user-specific interactions
         buttons = [[InlineKeyboardButton(str(i), callback_data=f"bombs_{i}") for i in range(row, row + 8)] for row in range(1, 25, 8)]
         text = "💣 Select the number of mines (1-24):"
     else: # tower
@@ -14277,14 +14414,67 @@ async def start_game_conversation(update: Update, context: ContextTypes.DEFAULT_
 async def select_bombs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     
-    # Check menu ownership
-    if not check_menu_ownership(query, context):
-        await query.answer("This menu is not for you.", show_alert=True)
-        return ConversationHandler.END
+    # NEW: Check if user-specific button (bombs_X_USERID format)
+    parts = query.data.split("_")
+    if len(parts) >= 3 and parts[2].isdigit():
+        # User-specific button check
+        button_user_id = int(parts[2])
+        if query.from_user.id != button_user_id:
+            await query.answer("This menu is not for you.", show_alert=True)
+            return ConversationHandler.END
+    else:
+        # Check menu ownership (old method)
+        if not check_menu_ownership(query, context):
+            await query.answer("This menu is not for you.", show_alert=True)
+            return ConversationHandler.END
     
     await query.answer()
-    bombs = query.data.split("_")[1]
+    bombs = parts[1]
     context.user_data['bombs'] = bombs
+    
+    # NEW: If bet amount is already set (from /mines amount), start game directly
+    if 'bet_amount' in context.user_data:
+        game_type = context.user_data.get('game_type')
+        if game_type == 'mines':
+            # Start mines game directly
+            user = query.from_user
+            bet_amount = context.user_data['bet_amount']
+            num_mines = int(bombs)
+            
+            # Start the game
+            await ensure_user_in_wallets(user.id, user.username, context=context)
+            
+            total_cells = 25
+            
+            # Use user's provably fair seeds
+            seeds = get_user_seeds(user.id)
+            mine_numbers = generate_mine_positions(seeds["server_seed"], seeds["client_seed"], seeds["nonce"], num_mines)
+            
+            game_id = generate_unique_id("MN")
+            game_sessions[game_id] = {
+                "id": game_id, "game_type": "mines", "user_id": user.id, "bet_amount": bet_amount,
+                "status": "active", "timestamp": str(datetime.now(timezone.utc)), "mines": mine_numbers,
+                "picks": [], "total_cells": total_cells, "num_mines": num_mines,
+                "server_seed": seeds["server_seed"], "client_seed": seeds["client_seed"], "nonce": seeds["nonce"]
+            }
+            await ensure_user_in_wallets(user.id, user.username, context=context)
+            if 'game_sessions' not in user_stats[user.id]: user_stats[user.id]['game_sessions'] = []
+            user_stats[user.id]['game_sessions'].append(game_id)
+            
+            user_wallets[user.id] -= bet_amount
+            save_user_data(user.id)
+
+            initial_text = (
+                f"💣 <b>Mines Game Started!</b> (ID: <code>{game_id}</code>)\n\nBet: <b>${bet_amount:.2f}</b>\nMines: <b>{num_mines}</b>\n\n"
+                "Click the buttons to reveal tiles. Find gems to increase your multiplier. Avoid the bombs!\n"
+                "You can cash out after any successful pick."
+            )
+            await query.edit_message_text(
+                initial_text, parse_mode=ParseMode.HTML, reply_markup=mines_keyboard(game_id)
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+    
     await query.edit_message_text(f"Bombs set to {bombs}. Now, please enter your bet amount (or 'all').", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="cancel_game")]]))
     # Set ownership after editing
     set_menu_owner(query.message, query.from_user.id)
