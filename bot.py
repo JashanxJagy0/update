@@ -2939,7 +2939,7 @@ async def safe_edit_message(query, text, reply_markup=None, parse_mode=None, dis
             parse_mode=parse_mode,
             disable_web_page_preview=disable_web_page_preview
         )
-    except Exception as e:
+    except Exception:
         # If it's a photo message, try to edit caption
         try:
             await query.edit_message_caption(
@@ -6122,8 +6122,8 @@ async def highlow_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # NEW: Roulette helper functions for interactive menu system
 
 # Roulette number to color mapping
-ROULETTE_RED_NUMBERS = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]
-ROULETTE_BLACK_NUMBERS = [2,4,6,8,10,11,13,15,17,20,22,24,26,28,29,31,33,35]
+ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
+ROULETTE_BLACK_NUMBERS = [2, 4, 6, 8, 10, 11, 13, 15, 17, 20, 22, 24, 26, 28, 29, 31, 33, 35]
 
 def get_roulette_number_emoji(number):
     """Get colored emoji for roulette number"""
@@ -9617,7 +9617,7 @@ async def mines_pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     try:
-        cell = int(parts[3]) if len(parts) > 4 else int(parts[3])
+        cell = int(parts[3])
     except (ValueError, IndexError): return
 
     if cell in game["picks"]:
