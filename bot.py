@@ -298,6 +298,18 @@ gift_codes = {} # NEW: To hold gift code data
 withdrawal_requests = {} # NEW: To hold pending withdrawal requests
 crypto_prices = {}  # NEW: Cache for cryptocurrency prices
 
+# NEW: Leaderboard data structures
+leaderboard_data = {
+    "all_time": [],  # Top 10 wagered users all-time: [(user_id, username, total_wagered)]
+    "weekly": [],    # Top 10 wagered users this week
+    "monthly": [],   # Top 10 wagered users this month
+    "highest_wins": []  # Top wins: [(user_id, username, win_amount, game_type, timestamp)]
+}
+leaderboard_last_update = {
+    "weekly_reset": datetime.now(timezone.utc),
+    "monthly_reset": datetime.now(timezone.utc)
+}
+
 # --- Global Control Flag ---
 bot_stopped = False
 
@@ -3204,6 +3216,41 @@ def increment_user_nonce(user_id):
     user_stats[user_id]["provably_fair"]["nonce"] += 1
     save_user_data(user_id)
 
+# NEW: Smart rate limiter for emoji games
+emoji_send_timestamps = {}  # Track last emoji send time per chat
+
+async def smart_rate_limit(chat_id, chat_type="private"):
+    """
+    Smart rate limiting for emoji sending
+    - In groups: faster rolling (0.5s between, 2s animation wait)
+    - In DMs: moderate speed (0.7s between, 3s animation wait)
+    - Tracks timestamps to avoid hitting Telegram limits
+    """
+    global emoji_send_timestamps
+    
+    now = asyncio.get_event_loop().time()
+    last_send = emoji_send_timestamps.get(chat_id, 0)
+    
+    # Determine delays based on chat type
+    if chat_type in ["group", "supergroup"]:
+        # Faster in groups but still safe
+        min_interval = 0.3  # Minimum time between sends
+        animation_wait = 2.0  # Reduced animation wait
+    else:
+        # DM settings
+        min_interval = 0.5
+        animation_wait = 3.0
+    
+    # Wait if needed to respect minimum interval
+    time_since_last = now - last_send
+    if time_since_last < min_interval:
+        await asyncio.sleep(min_interval - time_since_last)
+    
+    # Update last send time
+    emoji_send_timestamps[chat_id] = asyncio.get_event_loop().time()
+    
+    return animation_wait  # Return how long to wait for animation
+
 def store_provably_fair_record(game_id, game_type, server_seed, client_seed, nonce, result_data=None):
     """Store provably fair verification data for a completed game"""
     provably_fair_records[game_id] = {
@@ -4205,10 +4252,14 @@ def update_stats_on_bet(user_id, game_id, amount, win, pvp_win=False, multiplier
     
     # NEW: House balance update
     global bot_settings
+    win_amount = 0
+    game_type = game_sessions.get(game_id, {}).get('game_type', 'unknown')
+    
     if win:
         winnings = amount * multiplier
         net_win = winnings - amount
         bot_settings["house_balance"] -= net_win
+        win_amount = winnings
         # NEW: Update last_win field
         if net_win > 0:
             stats["last_win"] = net_win
@@ -4233,6 +4284,9 @@ def update_stats_on_bet(user_id, game_id, amount, win, pvp_win=False, multiplier
         "amount": amount,
         "timestamp": str(datetime.now(timezone.utc))
     })
+    
+    # NEW: Update leaderboards
+    update_leaderboards(user_id, amount, win_amount, game_type, multiplier)
 
     save_user_data(user_id)
     # Process referral commission on bet
@@ -4254,6 +4308,69 @@ def update_pnl(user_id):
     total_withdrawals = sum(w['amount'] for w in stats.get('withdrawals', []))
     stats["pnl"] = (total_withdrawals + user_wallets.get(user_id, 0.0)) - (total_deposits + stats["tips_received"]["amount"])
     save_user_data(user_id)
+
+def update_leaderboards(user_id, bet_amount, win_amount=0, game_type="", multiplier=0):
+    """Update leaderboard data after each bet"""
+    global leaderboard_data, leaderboard_last_update
+    
+    # Get user info
+    username = user_stats.get(user_id, {}).get('userinfo', {}).get('username', f'User-{user_id}')
+    username = username.lstrip('@')
+    
+    # Check for weekly/monthly reset
+    now = datetime.now(timezone.utc)
+    
+    # Weekly reset (every Monday)
+    if now.date() > leaderboard_last_update["weekly_reset"].date():
+        days_diff = (now.date() - leaderboard_last_update["weekly_reset"].date()).days
+        if days_diff >= 7 or now.weekday() < leaderboard_last_update["weekly_reset"].weekday():
+            leaderboard_data["weekly"] = []
+            leaderboard_last_update["weekly_reset"] = now
+    
+    # Monthly reset
+    if now.month != leaderboard_last_update["monthly_reset"].month or now.year != leaderboard_last_update["monthly_reset"].year:
+        leaderboard_data["monthly"] = []
+        leaderboard_data["highest_wins"] = []  # Reset highest wins monthly
+        leaderboard_last_update["monthly_reset"] = now
+    
+    # Update all-time leaderboard
+    total_wagered = user_stats.get(user_id, {}).get('bets', {}).get('amount', 0.0)
+    _update_leaderboard_entry(leaderboard_data["all_time"], user_id, username, total_wagered)
+    
+    # Update weekly leaderboard
+    _update_leaderboard_entry(leaderboard_data["weekly"], user_id, username, bet_amount, accumulate=True)
+    
+    # Update monthly leaderboard
+    _update_leaderboard_entry(leaderboard_data["monthly"], user_id, username, bet_amount, accumulate=True)
+    
+    # Update highest wins if this is a win
+    if win_amount > 0 and multiplier > 0:
+        _update_highest_wins(user_id, username, win_amount, game_type, now)
+    
+    # Keep only top 10
+    for key in ["all_time", "weekly", "monthly"]:
+        leaderboard_data[key] = sorted(leaderboard_data[key], key=lambda x: x[2], reverse=True)[:10]
+    leaderboard_data["highest_wins"] = sorted(leaderboard_data["highest_wins"], key=lambda x: x[2], reverse=True)[:10]
+
+def _update_leaderboard_entry(leaderboard, user_id, username, amount, accumulate=False):
+    """Helper to update a leaderboard entry"""
+    # Find existing entry
+    for i, entry in enumerate(leaderboard):
+        if entry[0] == user_id:
+            if accumulate:
+                leaderboard[i] = (user_id, username, entry[2] + amount)
+            else:
+                leaderboard[i] = (user_id, username, amount)
+            return
+    # Add new entry
+    leaderboard.append((user_id, username, amount))
+
+def _update_highest_wins(user_id, username, win_amount, game_type, timestamp):
+    """Helper to update highest wins"""
+    # Check if this win should be in top 10
+    if len(leaderboard_data["highest_wins"]) < 10 or win_amount > leaderboard_data["highest_wins"][-1][2]:
+        leaderboard_data["highest_wins"].append((user_id, username, win_amount, game_type, timestamp))
+        leaderboard_data["highest_wins"] = sorted(leaderboard_data["highest_wins"], key=lambda x: x[2], reverse=True)[:10]
 
 def get_all_registered_user_ids():
     return list(user_stats.keys())
@@ -4309,13 +4426,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         # Row 1: Deposit & Withdraw
         [
-            InlineKeyboardButton("💎 Deposit", callback_data="main_deposit"),
-            InlineKeyboardButton("💸 Withdraw", callback_data="main_withdraw")
+            InlineKeyboardButton("🔵 Deposit", callback_data="main_deposit"),
+            InlineKeyboardButton("🟢 Withdraw", callback_data="main_withdraw")
         ],
         # Row 2: Games & More
         [
-            InlineKeyboardButton("🎮 Games", callback_data="main_games"),
-            InlineKeyboardButton("➕ More", callback_data="main_more")
+            InlineKeyboardButton("🔵 Games", callback_data="main_games"),
+            InlineKeyboardButton("🔴 More", callback_data="main_more")
         ],
         # Row 3: Settings
     ]
@@ -6626,11 +6743,12 @@ async def dice_roll_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user_data(user.id)
 
     await update.message.reply_text(f"🎲 Rolling the dice...")
-    await asyncio.sleep(0.5)  # Rate limit protection
+    chat_type = update.effective_chat.type
+    animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
     try:
         dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji="🎲")
         dice_result = dice_msg.dice.value
-        await asyncio.sleep(4)  # Wait for dice animation to complete
+        await asyncio.sleep(animation_wait)  # Smart wait based on chat type
     except Exception as e:
         logging.error(f"Error sending dice in dice_roll_command: {e}")
         # Refund the bet on error
@@ -8314,11 +8432,12 @@ async def predict_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_wallets[user.id] -= bet_amount
     await update.message.reply_text(f"Rolling the dice... 🎲")
-    await asyncio.sleep(0.5)  # Rate limit protection
+    chat_type = update.effective_chat.type
+    animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
     try:
         dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji="🎲")
         outcome = dice_msg.dice.value
-        await asyncio.sleep(4)  # Wait for dice animation to complete
+        await asyncio.sleep(animation_wait)  # Smart wait based on chat type
     except Exception as e:
         logging.error(f"Error sending dice in predict_command: {e}")
         # Refund the bet on error
@@ -8488,9 +8607,9 @@ def create_keno_keyboard(game_id, selected_numbers):
     buttons = []
     for i in range(1, 41):
         if i in selected_numbers:
-            emoji = f"✅{i}"
+            emoji = f"🟢 {i}"  # Green for selected
         else:
-            emoji = str(i)
+            emoji = f"🔵 {i}"  # Blue for unselected
         buttons.append(InlineKeyboardButton(emoji, callback_data=f"keno_pick_{game_id}_{i}"))
     
     # Create 8 rows of 5 numbers each
@@ -8506,9 +8625,9 @@ def create_keno_keyboard(game_id, selected_numbers):
         InlineKeyboardButton("❌ Cancel", callback_data=f"keno_cancel_{game_id}")
     ]
     
-    # Add place bet button if numbers are selected
+    # Add place bet button if numbers are selected (green button)
     if selected_numbers:
-        action_row3 = [InlineKeyboardButton(f"✅ Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}")]
+        action_row3 = [InlineKeyboardButton(f"🟢 Place Bet ({len(selected_numbers)} numbers)", callback_data=f"keno_place_{game_id}")]
         keyboard.extend([action_row1, action_row2, action_row3])
     else:
         keyboard.extend([action_row1, action_row2])
@@ -10667,12 +10786,13 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # NOW bot rolls
             bot_rolls = []
+            chat_type = update.effective_chat.type
             for i in range(game_rolls):
-                await asyncio.sleep(1)  # Rate limit protection
+                animation_wait = await smart_rate_limit(update.effective_chat.id, chat_type)
                 try:
                     bot_dice_msg = await context.bot.send_dice(chat_id=update.effective_chat.id, emoji=expected_emoji)
                     bot_rolls.append(bot_dice_msg.dice.value)
-                    await asyncio.sleep(4)  # Wait for animation to complete
+                    await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                 except Exception as e:
                     logging.error(f"Error sending dice in PvB game: {e}")
                     await update.message.reply_text("❌ An error occurred. Game terminated.")
@@ -10851,10 +10971,11 @@ async def message_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await update.message.reply_text(f"Bot is rolling...")
                         
                         bot_rolls = []
+                        chat_type = update.effective_chat.type
                         for i in range(game_rolls):
-                            await asyncio.sleep(1)
+                            animation_wait = await smart_rate_limit(chat_id, chat_type)
                             bot_dice = await context.bot.send_dice(chat_id, emoji=dice_obj.emoji)
-                            await asyncio.sleep(4)  # Wait for animation
+                            await asyncio.sleep(animation_wait)  # Smart wait based on chat type
                             bot_rolls.append(bot_dice.dice.value)
                         
                         match_data["player_rolls"][p2] = bot_rolls
@@ -12223,23 +12344,73 @@ async def purge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @check_banned
 @check_maintenance
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE, from_callback=False):
+    """Display leaderboard with interactive buttons"""
     await ensure_user_in_wallets(update.effective_user.id, update.effective_user.username, context=context)
+    user_id = update.effective_user.id
     
     # Set menu owner for group protection when called as command
     if not from_callback:
-        context.user_data['menu_owner_id'] = update.effective_user.id
+        context.user_data['menu_owner_id'] = user_id
     
-    sorted_users = sorted(user_stats.items(), key=lambda item: item[1].get('bets', {}).get('amount', 0.0), reverse=True)
-
-    msg = "🏆 <b>Top 10 Players by Wager Amount</b> 🏆\n\n"
-    for i, (uid, stats) in enumerate(sorted_users[:10]):
-        username = stats.get('userinfo', {}).get('username', f'User-{uid}')
-        # Remove '@' if present to avoid mentions
-        username = username.lstrip('@')
-        wagered = stats.get('bets', {}).get('amount', 0.0)
-        msg += f"{i+1}. {username} - <b>${wagered:,.2f}</b>\n"
-
-    reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to More", callback_data="main_more")]]) if from_callback else None
+    # Default view is all-time
+    view = context.user_data.get('leaderboard_view', 'all_time')
+    
+    # Get leaderboard data
+    if view == 'all_time':
+        title = "🏆 <b>Top 10 Players - All Time</b> 🏆"
+        data = leaderboard_data["all_time"]
+        msg = f"{title}\n\n"
+        if data:
+            for i, (uid, username, wagered) in enumerate(data):
+                msg += f"{i+1}. {username} - <b>${wagered:,.2f}</b>\n"
+        else:
+            msg += "No data available yet.\n"
+    elif view == 'weekly':
+        title = "📅 <b>Top 10 Players - This Week</b> 📅"
+        data = leaderboard_data["weekly"]
+        msg = f"{title}\n\n"
+        if data:
+            for i, (uid, username, wagered) in enumerate(data):
+                msg += f"{i+1}. {username} - <b>${wagered:,.2f}</b>\n"
+        else:
+            msg += "No data available yet.\n"
+    elif view == 'monthly':
+        title = "📆 <b>Top 10 Players - This Month</b> 📆"
+        data = leaderboard_data["monthly"]
+        msg = f"{title}\n\n"
+        if data:
+            for i, (uid, username, wagered) in enumerate(data):
+                msg += f"{i+1}. {username} - <b>${wagered:,.2f}</b>\n"
+        else:
+            msg += "No data available yet.\n"
+    elif view == 'highest_wins':
+        title = "💰 <b>Highest Wins - This Month</b> 💰"
+        data = leaderboard_data["highest_wins"]
+        msg = f"{title}\n\n"
+        if data:
+            for i, (uid, username, win_amount, game_type, timestamp) in enumerate(data):
+                date_str = timestamp.strftime("%Y-%m-%d") if isinstance(timestamp, datetime) else str(timestamp)[:10]
+                msg += f"{i+1}. {username} - <b>${win_amount:,.2f}</b>\n   Game: {game_type.upper()} | Date: {date_str}\n\n"
+        else:
+            msg += "No wins recorded yet.\n"
+    
+    # Create inline buttons (user-specific)
+    keyboard = [
+        [
+            InlineKeyboardButton("📅 Weekly", callback_data=f"leaderboard_weekly_{user_id}"),
+            InlineKeyboardButton("📆 Monthly", callback_data=f"leaderboard_monthly_{user_id}")
+        ],
+        [
+            InlineKeyboardButton("💰 Highest Wins", callback_data=f"leaderboard_wins_{user_id}")
+        ],
+        [
+            InlineKeyboardButton("🏆 All Time", callback_data=f"leaderboard_alltime_{user_id}")
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to More", callback_data="main_more")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard) if from_callback else InlineKeyboardMarkup(keyboard)
 
     if from_callback:
         await safe_edit_message(update.callback_query, msg, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
@@ -12247,7 +12418,41 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         sent_message = await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
         # Set ownership when sending with keyboard
         if reply_markup:
-            set_menu_owner(sent_message, user.id)
+            set_menu_owner(sent_message, user_id)
+
+@check_banned
+@check_maintenance
+async def leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle leaderboard navigation button clicks"""
+    query = update.callback_query
+    user = query.from_user
+    
+    # Parse callback data
+    parts = query.data.split("_")
+    if len(parts) < 3:
+        return
+    
+    action = parts[1]  # weekly, monthly, wins, alltime
+    button_user_id = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else None
+    
+    # User-specific button check
+    if button_user_id and user.id != button_user_id:
+        await query.answer("This menu is not for you!", show_alert=True)
+        return
+    
+    await query.answer()
+    
+    # Set the view in user_data
+    view_map = {
+        'weekly': 'weekly',
+        'monthly': 'monthly',
+        'wins': 'highest_wins',
+        'alltime': 'all_time'
+    }
+    
+    if action in view_map:
+        context.user_data['leaderboard_view'] = view_map[action]
+        await leaderboard_command(update, context, from_callback=True)
 
 @check_banned
 @check_maintenance
@@ -14629,6 +14834,7 @@ def main():
     app.add_handler(CallbackQueryHandler(escrow_callback_handler, pattern=r"^escrow_")); app.add_handler(CallbackQueryHandler(users_navigation_callback, pattern=r"^users_"))
     app.add_handler(CallbackQueryHandler(language_callback, pattern=r"^lang_"))
     app.add_handler(CallbackQueryHandler(currency_callback, pattern=r"^setcurrency_")) # NEW - Currency setting
+    app.add_handler(CallbackQueryHandler(leaderboard_callback, pattern=r"^leaderboard_(weekly|monthly|wins|alltime)_")) # NEW - Leaderboard navigation
     app.add_handler(CallbackQueryHandler(admin_actions_callback, pattern=r"^admin_(dashboard|users|bot_settings|toggle_maintenance|broadcast|set_house_balance|limits|gift_codes|toggle_withdrawals|pending_withdrawals|active_games|export_data)$"))
     app.add_handler(CallbackQueryHandler(admin_user_search_callback, pattern=r"^admin_user_"))
     app.add_handler(CallbackQueryHandler(settings_callback_handler, pattern=r"^settings_"))
