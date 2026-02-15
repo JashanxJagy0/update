@@ -2927,7 +2927,8 @@ def get_text(user_id_or_key, key_or_lang=None, **kwargs):
 
 async def safe_edit_message(query, text, reply_markup=None, parse_mode=None, disable_web_page_preview=None):
     """
-    Safely edit a message. If the source is a PhotoMessage, delete it and send new text.
+    Safely edit a message. If the source is a PhotoMessage, try to edit caption first.
+    In groups, avoid deleting messages to prevent disappearing menus.
     Automatically sets menu ownership if reply_markup is provided.
     """
     try:
@@ -2938,18 +2939,44 @@ async def safe_edit_message(query, text, reply_markup=None, parse_mode=None, dis
             parse_mode=parse_mode,
             disable_web_page_preview=disable_web_page_preview
         )
-    except Exception:
-        # If it fails (likely because it's a photo message), delete and send new
+    except Exception as e:
+        # If it's a photo message, try to edit caption
         try:
-            await query.message.delete()
+            await query.edit_message_caption(
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
         except Exception:
-            pass
-        await query.message.reply_text(
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode=parse_mode,
-            disable_web_page_preview=disable_web_page_preview
-        )
+            # If editing caption fails, check if we're in a group
+            chat_type = query.message.chat.type
+            if chat_type in ["group", "supergroup"]:
+                # NEW: In groups, don't delete - just send a new message as reply
+                try:
+                    new_message = await query.message.reply_text(
+                        text=text,
+                        reply_markup=reply_markup,
+                        parse_mode=parse_mode,
+                        disable_web_page_preview=disable_web_page_preview
+                    )
+                    # Set ownership on the new message
+                    if reply_markup is not None and hasattr(query, 'from_user'):
+                        set_menu_owner(new_message, query.from_user.id)
+                    return
+                except Exception:
+                    pass
+            else:
+                # In DMs, we can safely delete and send new
+                try:
+                    await query.message.delete()
+                except Exception:
+                    pass
+                await query.message.reply_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=disable_web_page_preview
+                )
     
     # Automatically set menu ownership when there's a keyboard
     if reply_markup is not None and hasattr(query, 'from_user'):
@@ -4919,9 +4946,12 @@ async def game_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• Minimum bet: ${MIN_BALANCE:.2f}\n"
             "• Choose number (0-36), color, or type\n\n"
             "<b>Commands:</b>\n"
-            "• <code>/roul amount choice</code>\n"
+            "• <code>/roul amount</code> (interactive menu)\n"
+            "• <code>/roul amount choice</code> (quick bet)\n"
             "• <code>/roulette amount choice</code>\n\n"
-            "<b>Examples:</b>\n"
+            "<b>Interactive Examples:</b>\n"
+            "• <code>/roul 10</code> (opens menu)\n\n"
+            "<b>Quick Bet Examples:</b>\n"
             "• <code>/roul 1 5</code> (number 5)\n"
             "• <code>/roul all red</code> (red color)\n"
             "• <code>/roul 1 even</code> (even numbers)\n"
