@@ -86,6 +86,11 @@ LINK_CHANNEL = "https://t.me/escrews"  # Channel link (e.g., "https://t.me/yourc
 LINK_CHAT = "https://t.me/playcsino"  # Chat link (e.g., "https://t.me/yourchat")
 LINK_SUPPORT = "https://t.me/jashanxjagy"  # Support link (e.g., "https://t.me/yoursupport")
 
+# --- Roulette Image Configuration ---
+# Place your roulette table image in the same directory as bot.py
+# and specify the filename here (e.g., "roulette_table.jpg", "roulette.png", etc.)
+ROULETTE_IMAGE = "roulette_table.jpg"  # Change this to your image filename
+
 # --- Win Broadcast Configuration ---
 # ⚠️ IMPORTANT: Can use either Channel ID or Username
 # For Channel ID: Usually requires a "-100" prefix (e.g., "-1003848853417")
@@ -242,14 +247,14 @@ def create_styled_keyboard(keyboard_array):
     """
     Create a styled keyboard from a 2D array of buttons/dicts.
     
-    Converts a keyboard array (with styled button dicts) into the proper format
-    expected by Telegram Bot API for sending with reply_markup parameter.
+    Converts a keyboard array (with styled button dicts) into an InlineKeyboardMarkup
+    object that can be used with reply_markup parameter.
     
     Args:
         keyboard_array: 2D list of InlineKeyboardButton objects or dicts
     
     Returns:
-        dict: Formatted keyboard in {'inline_keyboard': [[...]]} format
+        InlineKeyboardMarkup: Formatted keyboard object ready for Telegram API
     """
     styled_rows = []
     for row in keyboard_array:
@@ -262,7 +267,8 @@ def create_styled_keyboard(keyboard_array):
                 # InlineKeyboardButton object, convert to dict
                 styled_row.append(item.to_dict() if hasattr(item, 'to_dict') else item)
         styled_rows.append(styled_row)
-    return {'inline_keyboard': styled_rows}
+    # Return InlineKeyboardMarkup created from dict format
+    return InlineKeyboardMarkup.de_json({'inline_keyboard': styled_rows}, None)
 
 # ========================================
 
@@ -4490,7 +4496,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Add Settings button only in DMs
     if update.effective_chat.type == "private":
-        keyboard.append([InlineKeyboardButton("⚙️ Settings", callback_data="main_settings").to_dict()])
+        keyboard.append([apply_button_style(InlineKeyboardButton("⚙️ Settings", callback_data="main_settings"), 'success')])  # GREEN
 
     # Row 5: Admin Dashboard (only for admin)
     if user.id == BOT_OWNER_ID:
@@ -4845,17 +4851,17 @@ async def start_command_inline(query, context):
     total_wagered = stats.get('bets', {}).get('amount', 0.0)
     formatted_wagers = format_currency(total_wagered, user_currency)
 
-    # NEW UI STRUCTURE - Casino themed with premium emojis
+    # NEW UI STRUCTURE - Casino themed with premium emojis - STYLED VERSION
     keyboard = [
         # Row 1: Deposit & Withdraw
         [
-            InlineKeyboardButton("💎 Deposit", callback_data="main_deposit"),
-            InlineKeyboardButton("💸 Withdraw", callback_data="main_withdraw")
+            apply_button_style(InlineKeyboardButton("💎 Deposit", callback_data="main_deposit"), 'primary'),  # BLUE
+            apply_button_style(InlineKeyboardButton("💸 Withdraw", callback_data="main_withdraw"), 'success')  # GREEN
         ],
         # Row 2: Games & More
         [
-            InlineKeyboardButton("🎮 Games", callback_data="main_games"),
-            InlineKeyboardButton("➕ More", callback_data="main_more")
+            apply_button_style(InlineKeyboardButton("🎮 Games", callback_data="main_games"), 'primary'),  # BLUE
+            apply_button_style(InlineKeyboardButton("📊 More", callback_data="main_more"), 'danger')  # RED
         ],
         # Row 3: Settings
     ]
@@ -4863,27 +4869,27 @@ async def start_command_inline(query, context):
     # Add Settings button only in DMs - with better error handling
     try:
         if query.message and query.message.chat and query.message.chat.type == "private":
-            keyboard.append([InlineKeyboardButton("⚙️ Settings", callback_data="main_settings")])
+            keyboard.append([apply_button_style(InlineKeyboardButton("⚙️ Settings", callback_data="main_settings"), 'success')])  # GREEN
     except AttributeError:
         # Default to adding settings if we can't determine chat type
-        keyboard.append([InlineKeyboardButton("⚙️ Settings", callback_data="main_settings")])
+        keyboard.append([apply_button_style(InlineKeyboardButton("⚙️ Settings", callback_data="main_settings"), 'success')])  # GREEN
 
     # Row 5: Admin Dashboard (only for admin)
     if user.id == BOT_OWNER_ID:
-        keyboard.append([InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_dashboard")])
+        keyboard.append([InlineKeyboardButton("🔧 Admin Panel", callback_data="admin_dashboard").to_dict()])
 
     # Create links row
     links_row = []
     if LINK_PORTAL:
-        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL))
+        links_row.append(InlineKeyboardButton("🌐 Portal", url=LINK_PORTAL).to_dict())
     if LINK_CHANNEL:
-        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL))
+        links_row.append(InlineKeyboardButton("📢 Channel", url=LINK_CHANNEL).to_dict())
     
     links_row_2 = []
     if LINK_CHAT:
-        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT))
+        links_row_2.append(InlineKeyboardButton("💬 Chat", url=LINK_CHAT).to_dict())
     if LINK_SUPPORT:
-        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT))
+        links_row_2.append(InlineKeyboardButton("🆘 Support", url=LINK_SUPPORT).to_dict())
     
     # Add links rows if they have buttons
     if links_row:
@@ -4899,11 +4905,14 @@ async def start_command_inline(query, context):
         "🎮 Choose an option below to get started!"
     )
 
+    # Create styled keyboard using helper function
+    reply_markup = create_styled_keyboard(keyboard)
+
     await safe_edit_message(
         query,
         welcome_text,
         parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=reply_markup
     )
 
 async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6397,6 +6406,24 @@ async def roulette_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Select your bet or choose numbers:"
         )
         
+        # Try to send with roulette image if available
+        roulette_image_path = os.path.join(os.path.dirname(__file__), ROULETTE_IMAGE) if ROULETTE_IMAGE else None
+        if roulette_image_path and os.path.exists(roulette_image_path):
+            try:
+                with open(roulette_image_path, 'rb') as photo:
+                    sent_message = await update.message.reply_photo(
+                        photo=photo,
+                        caption=menu_text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=create_roulette_menu_keyboard(user.id, bet_amount)
+                    )
+                    set_menu_owner(sent_message, user.id)
+                    return
+            except Exception as e:
+                logging.warning(f"Could not send roulette image: {e}")
+                # Fall back to text-only message
+        
+        # Text-only fallback if image not available or failed
         sent_message = await update.message.reply_text(
             menu_text,
             parse_mode=ParseMode.HTML,
